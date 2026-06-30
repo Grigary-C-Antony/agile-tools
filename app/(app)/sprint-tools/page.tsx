@@ -1,14 +1,19 @@
 'use client'
 
-import { useState, useMemo, Suspense } from 'react'
+import { useState, useEffect, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
-import { MOCK_SPRINT_CONFIG, MOCK_VELOCITY_DATA } from '@/lib/mock-data'
+import { Modal } from '@/components/ui/Modal'
+import { MOCK_SPRINT_CONFIG } from '@/lib/mock-data'
 import { calcSprintCapacity, calcVelocityStats, formatDate } from '@/lib/utils'
 import type { SprintConfig, SprintMember, Holiday } from '@/lib/types'
+
+interface VelocityRecord {
+  id: string; sprint_name: string; planned: number; completed: number; created_at: number
+}
 
 type Tab = 'capacity' | 'days' | 'velocity' | 'leave'
 
@@ -285,8 +290,55 @@ function CapacityTab() {
 
 // ── Velocity Tab ──
 function VelocityTab() {
-  const [sprints, setSprints] = useState(MOCK_VELOCITY_DATA)
-  const stats = useMemo(() => calcVelocityStats(sprints), [sprints])
+  const [records, setRecords] = useState<VelocityRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [addOpen, setAddOpen] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newPlanned, setNewPlanned] = useState('')
+  const [newCompleted, setNewCompleted] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const fetchRecords = () => {
+    fetch('/api/sprint/velocity').then(r => r.json()).then(d => {
+      setRecords(d.records ?? [])
+      setLoading(false)
+    })
+  }
+
+  useEffect(() => { fetchRecords() }, [])
+
+  // Map VelocityRecord[] to SprintVelocity[] for calcVelocityStats
+  const sprintVelocities = records.map((r, i) => ({
+    id: r.id, sprintNumber: i + 1,
+    plannedPoints: r.planned, completedPoints: r.completed,
+    teamSize: 1, startDate: '', endDate: '',
+  }))
+
+  const stats = useMemo(() => calcVelocityStats(sprintVelocities), [records])
+
+  const addSprint = async () => {
+    if (!newName.trim()) return
+    setSaving(true)
+    const res = await fetch('/api/sprint/velocity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sprint_name: newName.trim(),
+        planned: parseInt(newPlanned) || 0,
+        completed: parseInt(newCompleted) || 0,
+      }),
+    })
+    const data = await res.json()
+    setRecords(prev => [...prev, data.record])
+    setNewName(''); setNewPlanned(''); setNewCompleted('')
+    setSaving(false)
+    setAddOpen(false)
+  }
+
+  const deleteRecord = async (id: string) => {
+    await fetch(`/api/sprint/velocity/${id}`, { method: 'DELETE' })
+    setRecords(prev => prev.filter(r => r.id !== id))
+  }
 
   return (
     <div className="space-y-6">
@@ -313,71 +365,103 @@ function VelocityTab() {
       </div>
 
       {/* Trend info */}
-      <GlassCard topGradient padding="md" className="animate-fade-in">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${stats.trend === 'up' ? 'bg-green-500/10 text-green-400' : stats.trend === 'down' ? 'bg-error/10 text-error' : 'bg-white/5 text-on-surface-variant'}`}>
-              <span className="material-symbols-outlined text-[20px]">
-                {stats.trend === 'up' ? 'trending_up' : stats.trend === 'down' ? 'trending_down' : 'trending_flat'}
-              </span>
+      {records.length > 1 && (
+        <GlassCard topGradient padding="md" className="animate-fade-in">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${stats.trend === 'up' ? 'bg-green-500/10 text-green-400' : stats.trend === 'down' ? 'bg-error/10 text-error' : 'bg-white/5 text-on-surface-variant'}`}>
+                <span className="material-symbols-outlined text-[20px]">
+                  {stats.trend === 'up' ? 'trending_up' : stats.trend === 'down' ? 'trending_down' : 'trending_flat'}
+                </span>
+              </div>
+              <div>
+                <h4 className="font-bold text-on-surface">Velocity Trend</h4>
+                <p className="text-sm text-on-surface-variant">
+                  {stats.trend === 'up' ? 'Improving' : stats.trend === 'down' ? 'Declining' : 'Stable'} — {stats.trendPercent > 0 ? '+' : ''}{stats.trendPercent}% vs. last sprint
+                </p>
+              </div>
             </div>
-            <div>
-              <h4 className="font-bold text-on-surface">Velocity Trend</h4>
-              <p className="text-sm text-on-surface-variant">
-                {stats.trend === 'up' ? 'Improving' : stats.trend === 'down' ? 'Declining' : 'Stable'} — {stats.trendPercent > 0 ? '+' : ''}{stats.trendPercent}% vs. last sprint
-              </p>
-            </div>
+            <Badge variant={stats.trend === 'up' ? 'success' : stats.trend === 'down' ? 'error' : 'glass'}>
+              {stats.trend === 'up' ? '▲' : stats.trend === 'down' ? '▼' : '●'} {stats.trendPercent > 0 ? '+' : ''}{stats.trendPercent}%
+            </Badge>
           </div>
-          <Badge variant={stats.trend === 'up' ? 'success' : stats.trend === 'down' ? 'error' : 'glass'}>
-            {stats.trend === 'up' ? '▲' : stats.trend === 'down' ? '▼' : '●'} {stats.trendPercent > 0 ? '+' : ''}{stats.trendPercent}%
-          </Badge>
-        </div>
-      </GlassCard>
+        </GlassCard>
+      )}
 
       {/* Sprint data table */}
       <GlassCard padding="none" className="animate-fade-in">
         <div className="p-5 border-b border-white/5 flex items-center justify-between">
           <h3 className="text-base font-bold text-on-surface">Sprint History</h3>
-          <Button variant="glass" size="sm" icon="add">Add Sprint</Button>
+          <Button variant="glass" size="sm" icon="add" onClick={() => setAddOpen(true)}>Add Sprint</Button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[600px]">
-            <thead>
-              <tr className="border-b border-white/5">
-                {['Sprint', 'Planned', 'Completed', 'Accuracy', 'Team Size', 'Period'].map(h => (
-                  <th key={h} className="px-5 py-3 text-left text-label-caps text-[10px] text-on-surface-variant/40">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {[...sprints].reverse().map(s => {
-                const accuracy = s.plannedPoints > 0 ? Math.round((s.completedPoints / s.plannedPoints) * 100) : 0
-                return (
-                  <tr key={s.id} className="hover:bg-white/3 transition-colors">
-                    <td className="px-5 py-3.5 text-sm font-mono font-bold text-primary">Sprint {s.sprintNumber}</td>
-                    <td className="px-5 py-3.5 text-sm text-on-surface">{s.plannedPoints} pts</td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-on-surface">{s.completedPoints} pts</span>
-                        <div className="w-20 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                          <div className="h-full gradient-brand rounded-full" style={{ width: `${accuracy}%` }} />
+        {loading ? (
+          <div className="py-12 flex justify-center">
+            <div className="w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+          </div>
+        ) : records.length === 0 ? (
+          <div className="py-12 text-center text-on-surface-variant/40">
+            <span className="material-symbols-outlined text-[40px] mb-2 block">speed</span>
+            <p className="text-sm">No sprints recorded yet. Add your first sprint to track velocity.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[500px]">
+              <thead>
+                <tr className="border-b border-white/5">
+                  {['Sprint', 'Planned', 'Completed', 'Accuracy', ''].map(h => (
+                    <th key={h} className="px-5 py-3 text-left text-label-caps text-[10px] text-on-surface-variant/40">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {[...records].reverse().map((s, idx) => {
+                  const accuracy = s.planned > 0 ? Math.round((s.completed / s.planned) * 100) : 0
+                  return (
+                    <tr key={s.id} className="hover:bg-white/3 transition-colors group">
+                      <td className="px-5 py-3.5 text-sm font-mono font-bold text-primary">{s.sprint_name}</td>
+                      <td className="px-5 py-3.5 text-sm text-on-surface">{s.planned} pts</td>
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-on-surface">{s.completed} pts</span>
+                          <div className="w-20 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                            <div className="h-full gradient-brand rounded-full" style={{ width: `${Math.min(accuracy, 100)}%` }} />
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <span className={`text-sm font-bold ${accuracy >= 90 ? 'text-green-400' : accuracy >= 70 ? 'text-tertiary' : 'text-error'}`}>
-                        {accuracy}%
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5 text-sm text-on-surface-variant">{s.teamSize}</td>
-                    <td className="px-5 py-3.5 text-xs text-on-surface-variant/50">{formatDate(s.startDate)} – {formatDate(s.endDate)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className={`text-sm font-bold ${accuracy >= 90 ? 'text-green-400' : accuracy >= 70 ? 'text-tertiary' : 'text-error'}`}>
+                          {accuracy}%
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-right">
+                        <button onClick={() => deleteRecord(s.id)}
+                          className="opacity-0 group-hover:opacity-100 text-error/40 hover:text-error transition-all">
+                          <span className="material-symbols-outlined text-[16px]">close</span>
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </GlassCard>
+
+      {/* Add Sprint Modal */}
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Sprint" size="sm">
+        <div className="space-y-4">
+          <Input label="Sprint Name" placeholder="e.g. Sprint 24" value={newName} onChange={e => setNewName(e.target.value)} />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Planned Points" type="number" placeholder="0" value={newPlanned} onChange={e => setNewPlanned(e.target.value)} />
+            <Input label="Completed Points" type="number" placeholder="0" value={newCompleted} onChange={e => setNewCompleted(e.target.value)} />
+          </div>
+          <Button variant="primary" className="w-full" icon="add" loading={saving}
+            disabled={!newName.trim() || saving} onClick={addSprint}>
+            Add Sprint
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }
