@@ -7,10 +7,10 @@ export async function POST(request: Request) {
   if (!inviteCode?.trim() || !name?.trim())
     return NextResponse.json({ error: 'Invite code and your name are required' }, { status: 400 })
 
-  const org = db.getOrgByInviteCode(inviteCode.trim())
+  const org = await db.getOrgByInviteCode(inviteCode.trim())
   if (!org) return NextResponse.json({ error: 'Invalid invite code' }, { status: 404 })
 
-  const member = db.createMember(org.id, name.trim(), 'member')
+  const member = await db.createMember(org.id, name.trim(), 'member')
 
   const res = NextResponse.json({ org, member, status: member.status })
   setSessionCookie(res, { orgId: org.id, memberId: member.id })

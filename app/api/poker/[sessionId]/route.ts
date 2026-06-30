@@ -6,18 +6,21 @@ export async function GET(_: Request, { params }: { params: Promise<{ sessionId:
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const member = db.getMember(session.memberId)
+  const member = await db.getMember(session.memberId)
   if (!member || member.status !== 'active') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { sessionId } = await params
-  const pokerSession = db.getPokerSession(sessionId)
+  const pokerSession = await db.getPokerSession(sessionId)
   if (!pokerSession || pokerSession.org_id !== session.orgId)
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const stories = db.getStories(sessionId)
+  const [stories, orgMembers] = await Promise.all([
+    db.getStories(sessionId),
+    db.getOrgMembers(session.orgId),
+  ])
+
   const currentVotes = pokerSession.current_story_id
-    ? db.getVotes(sessionId, pokerSession.current_story_id) : []
-  const orgMembers = db.getOrgMembers(session.orgId)
+    ? await db.getVotes(sessionId, pokerSession.current_story_id) : []
 
   return NextResponse.json({
     session: pokerSession,

@@ -6,14 +6,14 @@ export async function GET() {
   const session = await getSession()
   if (!session) return NextResponse.json({ session: null })
 
-  const member = db.getMember(session.memberId)
+  const member = await db.getMember(session.memberId)
   if (!member) {
     const res = NextResponse.json({ session: null })
     clearSessionCookie(res)
     return res
   }
 
-  const org = db.getOrg(session.orgId)
+  const org = await db.getOrg(session.orgId)
 
   return NextResponse.json({
     session: {

@@ -19,3 +19,7 @@ next-env.d.ts
 
 # SQLite database
 data/
+
+# Environment variables
+.env
+.env.local

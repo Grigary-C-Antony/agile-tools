@@ -38,7 +38,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const sessionData = readSessionFromCookie(raw)
   if (!sessionData) redirect('/')
 
-  const member = db.getMember(sessionData.memberId)
+  const member = await db.getMember(sessionData.memberId)
   if (!member || member.org_id !== sessionData.orgId) redirect('/')
   if (member.status === 'rejected') redirect('/')
   if (member.status === 'pending') return <PendingPage name={member.name} />

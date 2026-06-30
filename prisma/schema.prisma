@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id         String  @id
+  name       String
+  inviteCode String  @unique @map("invite_code")
+  createdAt  Int     @map("created_at")
+
+  members         Member[]
+  sessions        PokerSession[]
+  wsjfFeatures    WsjfFeature[]
+  riceFeatures    RiceFeature[]
+  estimationItems EstimationItem[]
+  velocityRecords VelocityRecord[]
+
+  @@map("organizations")
+}
+
+model Member {
+  id        String @id
+  orgId     String @map("org_id")
+  name      String
+  role      String @default("member")
+  status    String @default("pending")
+  createdAt Int    @map("created_at")
+
+  org   Organization @relation(fields: [orgId], references: [id])
+  votes PokerVote[]
+
+  @@map("members")
+}
+
+model PokerSession {
+  id             String  @id
+  orgId          String  @map("org_id")
+  name           String
+  scale          String  @default("fibonacci")
+  status         String  @default("voting")
+  currentStoryId String? @map("current_story_id")
+  createdBy      String  @map("created_by")
+  createdAt      Int     @map("created_at")
+
+  org     Organization @relation(fields: [orgId], references: [id])
+  stories PokerStory[]
+  votes   PokerVote[]
+
+  @@map("poker_sessions")
+}
+
+model PokerStory {
+  id          String  @id
+  sessionId   String  @map("session_id")
+  title       String
+  description String?
+  estimate    String?
+  orderIndex  Int     @default(0) @map("order_index")
+  createdAt   Int     @map("created_at")
+
+  session PokerSession @relation(fields: [sessionId], references: [id])
+  votes   PokerVote[]
+
+  @@map("poker_stories")
+}
+
+model PokerVote {
+  id        String @id
+  sessionId String @map("session_id")
+  storyId   String @map("story_id")
+  memberId  String @map("member_id")
+  vote      String
+  createdAt Int    @map("created_at")
+
+  session PokerSession @relation(fields: [sessionId], references: [id])
+  story   PokerStory   @relation(fields: [storyId], references: [id])
+  member  Member       @relation(fields: [memberId], references: [id])
+
+  @@unique([storyId, memberId])
+  @@map("poker_votes")
+}
+
+model WsjfFeature {
+  id              String @id
+  orgId           String @map("org_id")
+  name            String
+  businessValue   Int    @default(1) @map("business_value")
+  timeCriticality Int    @default(1) @map("time_criticality")
+  riskReduction   Int    @default(1) @map("risk_reduction")
+  jobSize         Int    @default(1) @map("job_size")
+  createdAt       Int    @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@map("wsjf_features")
+}
+
+model RiceFeature {
+  id         String @id
+  orgId      String @map("org_id")
+  name       String
+  reach      Int    @default(1000)
+  impact     Int    @default(1)
+  confidence Int    @default(80)
+  effort     Int    @default(1)
+  createdAt  Int    @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@map("rice_features")
+}
+
+model EstimationItem {
+  id          String  @id
+  orgId       String  @map("org_id")
+  name        String
+  description String?
+  estimate    String?
+  scale       String  @default("fibonacci")
+  createdAt   Int     @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@map("estimation_items")
+}
+
+model VelocityRecord {
+  id         String @id
+  orgId      String @map("org_id")
+  sprintName String @map("sprint_name")
+  planned    Int    @default(0)
+  completed  Int    @default(0)
+  createdAt  Int    @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@map("velocity_records")
+}

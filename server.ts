@@ -31,7 +31,7 @@ app.prepare().then(() => {
     let currentMemberId: string | null = null
 
     // ── Join poker session ──────────────────────────────────────────────────
-    socket.on('poker:join', ({ sessionId, memberId, memberName }: { sessionId: string; memberId: string; memberName: string }) => {
+    socket.on('poker:join', async ({ sessionId, memberId, memberName }: { sessionId: string; memberId: string; memberName: string }) => {
       socket.join(`poker:${sessionId}`)
       currentSessionId = sessionId
       currentMemberId = memberId
@@ -39,72 +39,70 @@ app.prepare().then(() => {
       if (!pokerRooms.has(sessionId)) pokerRooms.set(sessionId, new Map())
       pokerRooms.get(sessionId)!.set(memberId, { name: memberName, socketId: socket.id })
 
-      const session = db.getPokerSession(sessionId)
-      const stories = db.getStories(sessionId)
+      const session = await db.getPokerSession(sessionId)
+      const stories = await db.getStories(sessionId)
       const room = pokerRooms.get(sessionId)!
-      const currentVotes = session?.current_story_id ? db.getVotes(sessionId, session.current_story_id) : []
+      const currentVotes = session?.current_story_id ? await db.getVotes(sessionId, session.current_story_id) : []
       const votedIds = new Set(currentVotes.map(v => v.member_id))
 
       const participants = Array.from(room.entries()).map(([id, info]) => ({
         memberId: id, name: info.name, hasVoted: votedIds.has(id),
       }))
 
-      // Send current state to the joining client
       socket.emit('poker:state', {
         session, stories, participants,
         votes: session?.status === 'revealed' ? currentVotes : [],
       })
 
-      // Notify others
       socket.to(`poker:${sessionId}`).emit('poker:participant-joined', { memberId, memberName })
     })
 
     // ── Cast vote ──────────────────────────────────────────────────────────
-    socket.on('poker:vote', ({ sessionId, storyId, memberId, vote }: { sessionId: string; storyId: string; memberId: string; vote: string }) => {
-      db.saveVote(sessionId, storyId, memberId, vote)
+    socket.on('poker:vote', async ({ sessionId, storyId, memberId, vote }: { sessionId: string; storyId: string; memberId: string; vote: string }) => {
+      await db.saveVote(sessionId, storyId, memberId, vote)
       io.to(`poker:${sessionId}`).emit('poker:voted', { memberId })
     })
 
-    // ── Reveal votes ──────────────────────────────────────────────────────
-    socket.on('poker:reveal', ({ sessionId, storyId }: { sessionId: string; storyId: string }) => {
-      db.updatePokerSessionStatus(sessionId, 'revealed')
-      const votes = db.getVotes(sessionId, storyId)
+    // ── Reveal votes ────────────────────────────────────────────────────────
+    socket.on('poker:reveal', async ({ sessionId, storyId }: { sessionId: string; storyId: string }) => {
+      await db.updatePokerSessionStatus(sessionId, 'revealed')
+      const votes = await db.getVotes(sessionId, storyId)
       io.to(`poker:${sessionId}`).emit('poker:revealed', { votes, storyId })
     })
 
-    // ── Reset round ───────────────────────────────────────────────────────
-    socket.on('poker:reset', ({ sessionId, storyId }: { sessionId: string; storyId: string }) => {
-      db.clearVotes(sessionId, storyId)
-      db.updatePokerSessionStatus(sessionId, 'voting')
+    // ── Reset round ─────────────────────────────────────────────────────────
+    socket.on('poker:reset', async ({ sessionId, storyId }: { sessionId: string; storyId: string }) => {
+      await db.clearVotes(sessionId, storyId)
+      await db.updatePokerSessionStatus(sessionId, 'voting')
       io.to(`poker:${sessionId}`).emit('poker:reset-round', { storyId })
     })
 
-    // ── Accept story estimate & advance ──────────────────────────────────
-    socket.on('poker:accept-story', ({ sessionId, storyId, estimate }: { sessionId: string; storyId: string; estimate: string }) => {
-      db.setStoryEstimate(storyId, estimate)
-      db.updatePokerSessionStatus(sessionId, 'voting')
-      const stories = db.getStories(sessionId)
+    // ── Accept story estimate & advance ────────────────────────────────────
+    socket.on('poker:accept-story', async ({ sessionId, storyId, estimate }: { sessionId: string; storyId: string; estimate: string }) => {
+      await db.setStoryEstimate(storyId, estimate)
+      await db.updatePokerSessionStatus(sessionId, 'voting')
+      const stories = await db.getStories(sessionId)
       const idx = stories.findIndex(s => s.id === storyId)
       const next = stories[idx + 1] ?? null
-      db.setCurrentStory(sessionId, next?.id ?? null)
-      if (!next) db.updatePokerSessionStatus(sessionId, 'completed')
+      await db.setCurrentStory(sessionId, next?.id ?? null)
+      if (!next) await db.updatePokerSessionStatus(sessionId, 'completed')
       io.to(`poker:${sessionId}`).emit('poker:story-accepted', { storyId, estimate, nextStory: next })
     })
 
-    // ── Add story ─────────────────────────────────────────────────────────
-    socket.on('poker:add-story', ({ sessionId, title, description }: { sessionId: string; title: string; description?: string }) => {
-      const story = db.addStory(sessionId, title, description)
+    // ── Add story ───────────────────────────────────────────────────────────
+    socket.on('poker:add-story', async ({ sessionId, title, description }: { sessionId: string; title: string; description?: string }) => {
+      const story = await db.addStory(sessionId, title, description)
       io.to(`poker:${sessionId}`).emit('poker:story-added', { story })
     })
 
-    // ── End session ───────────────────────────────────────────────────────
-    socket.on('poker:end', ({ sessionId }: { sessionId: string }) => {
-      db.updatePokerSessionStatus(sessionId, 'completed')
+    // ── End session ─────────────────────────────────────────────────────────
+    socket.on('poker:end', async ({ sessionId }: { sessionId: string }) => {
+      await db.updatePokerSessionStatus(sessionId, 'completed')
       io.to(`poker:${sessionId}`).emit('poker:session-ended', { sessionId })
       pokerRooms.delete(sessionId)
     })
 
-    // ── Disconnect ────────────────────────────────────────────────────────
+    // ── Disconnect ──────────────────────────────────────────────────────────
     socket.on('disconnect', () => {
       console.log(`[Socket.IO] Client disconnected: ${socket.id}`)
       if (currentSessionId && currentMemberId) {

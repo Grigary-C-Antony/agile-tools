@@ -1,109 +1,20 @@
-import Database from 'better-sqlite3'
-import fs from 'fs'
-import path from 'path'
+import { PrismaClient } from '@prisma/client'
+import type {
+  Organization, Member as PrismaMember, PokerSession as PrismaPokerSession,
+  PokerStory as PrismaPokerStory, PokerVote as PrismaPokerVote,
+  WsjfFeature as PrismaWsjfFeature, RiceFeature as PrismaRiceFeature,
+  EstimationItem as PrismaEstimationItem, VelocityRecord as PrismaVelocityRecord,
+} from '@prisma/client'
 import { randomUUID } from 'crypto'
 
-const dataDir = path.join(process.cwd(), 'data')
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true })
+// Ensure DATABASE_URL is set for server.ts (tsx doesn't auto-load .env)
+process.env.DATABASE_URL ??= 'file:./data/agile.db'
 
-// Persist across Next.js hot reloads in development
-const g = global as typeof global & { __agileDb?: Database.Database }
+const g = global as typeof global & { prisma?: PrismaClient }
+export const prisma = g.prisma ?? new PrismaClient()
+if (process.env.NODE_ENV !== 'production') g.prisma = prisma
 
-function getDb(): Database.Database {
-  if (g.__agileDb) return g.__agileDb
-  const instance = new Database(path.join(dataDir, 'agile.db'))
-  instance.pragma('journal_mode = WAL')
-  instance.pragma('foreign_keys = ON')
-  initSchema(instance)
-  g.__agileDb = instance
-  return instance
-}
-
-function initSchema(d: Database.Database): void {
-  d.exec(`
-    CREATE TABLE IF NOT EXISTS organizations (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      invite_code TEXT UNIQUE NOT NULL,
-      created_at INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS members (
-      id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES organizations(id),
-      name TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'member',
-      status TEXT NOT NULL DEFAULT 'pending',
-      created_at INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS poker_sessions (
-      id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES organizations(id),
-      name TEXT NOT NULL,
-      scale TEXT NOT NULL DEFAULT 'fibonacci',
-      status TEXT NOT NULL DEFAULT 'voting',
-      current_story_id TEXT,
-      created_by TEXT NOT NULL REFERENCES members(id),
-      created_at INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS poker_stories (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL REFERENCES poker_sessions(id),
-      title TEXT NOT NULL,
-      description TEXT,
-      estimate TEXT,
-      order_index INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS poker_votes (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL REFERENCES poker_sessions(id),
-      story_id TEXT NOT NULL REFERENCES poker_stories(id),
-      member_id TEXT NOT NULL REFERENCES members(id),
-      vote TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      UNIQUE(story_id, member_id)
-    );
-    CREATE TABLE IF NOT EXISTS wsjf_features (
-      id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES organizations(id),
-      name TEXT NOT NULL,
-      business_value INTEGER NOT NULL DEFAULT 1,
-      time_criticality INTEGER NOT NULL DEFAULT 1,
-      risk_reduction INTEGER NOT NULL DEFAULT 1,
-      job_size INTEGER NOT NULL DEFAULT 1,
-      created_at INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS rice_features (
-      id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES organizations(id),
-      name TEXT NOT NULL,
-      reach INTEGER NOT NULL DEFAULT 1000,
-      impact INTEGER NOT NULL DEFAULT 1,
-      confidence INTEGER NOT NULL DEFAULT 80,
-      effort INTEGER NOT NULL DEFAULT 1,
-      created_at INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS estimation_items (
-      id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES organizations(id),
-      name TEXT NOT NULL,
-      description TEXT,
-      estimate TEXT,
-      scale TEXT NOT NULL DEFAULT 'fibonacci',
-      created_at INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS velocity_records (
-      id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES organizations(id),
-      sprint_name TEXT NOT NULL,
-      planned INTEGER NOT NULL DEFAULT 0,
-      completed INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL
-    );
-  `)
-}
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Exported types (snake_case for backward compat with API routes & pages) ──
 export interface Org { id: string; name: string; invite_code: string; created_at: number }
 export interface Member { id: string; org_id: string; name: string; role: 'admin' | 'member'; status: 'pending' | 'active' | 'rejected'; created_at: number }
 export interface PokerSession { id: string; org_id: string; name: string; scale: string; status: 'voting' | 'revealed' | 'completed'; current_story_id: string | null; created_by: string; created_at: number }
@@ -121,145 +32,235 @@ export function generateInviteCode(): string {
   return `${rand(4)}-${rand(3)}`
 }
 
+// ── Mappers (Prisma camelCase → snake_case) ───────────────────────────────────
+const mapOrg = (o: Organization): Org =>
+  ({ id: o.id, name: o.name, invite_code: o.inviteCode, created_at: o.createdAt })
+
+const mapMember = (m: PrismaMember): Member =>
+  ({ id: m.id, org_id: m.orgId, name: m.name, role: m.role as Member['role'], status: m.status as Member['status'], created_at: m.createdAt })
+
+const mapSession = (s: PrismaPokerSession): PokerSession =>
+  ({ id: s.id, org_id: s.orgId, name: s.name, scale: s.scale, status: s.status as PokerSession['status'], current_story_id: s.currentStoryId, created_by: s.createdBy, created_at: s.createdAt })
+
+const mapStory = (s: PrismaPokerStory): PokerStory =>
+  ({ id: s.id, session_id: s.sessionId, title: s.title, description: s.description, estimate: s.estimate, order_index: s.orderIndex, created_at: s.createdAt })
+
+const mapVote = (v: PrismaPokerVote): PokerVote =>
+  ({ id: v.id, session_id: v.sessionId, story_id: v.storyId, member_id: v.memberId, vote: v.vote, created_at: v.createdAt })
+
+const mapWSJF = (f: PrismaWsjfFeature): WSJFFeature =>
+  ({ id: f.id, org_id: f.orgId, name: f.name, business_value: f.businessValue, time_criticality: f.timeCriticality, risk_reduction: f.riskReduction, job_size: f.jobSize, created_at: f.createdAt })
+
+const mapRICE = (f: PrismaRiceFeature): RICEFeature =>
+  ({ id: f.id, org_id: f.orgId, name: f.name, reach: f.reach, impact: f.impact, confidence: f.confidence, effort: f.effort, created_at: f.createdAt })
+
+const mapEstItem = (i: PrismaEstimationItem): EstimationItem =>
+  ({ id: i.id, org_id: i.orgId, name: i.name, description: i.description, estimate: i.estimate, scale: i.scale, created_at: i.createdAt })
+
+const mapVelocity = (r: PrismaVelocityRecord): VelocityRecord =>
+  ({ id: r.id, org_id: r.orgId, sprint_name: r.sprintName, planned: r.planned, completed: r.completed, created_at: r.createdAt })
+
 // ── DB operations ─────────────────────────────────────────────────────────────
 export const db = {
-  // Organizations
-  createOrg(name: string): Org {
-    const d = getDb(), id = randomUUID(), code = generateInviteCode()
-    d.prepare('INSERT INTO organizations VALUES (?,?,?,?)').run(id, name, code, Date.now())
-    return d.prepare('SELECT * FROM organizations WHERE id=?').get(id) as Org
+  // ── Organizations ──────────────────────────────────────────────────────────
+  async createOrg(name: string): Promise<Org> {
+    const org = await prisma.organization.create({
+      data: { id: randomUUID(), name, inviteCode: generateInviteCode(), createdAt: Date.now() },
+    })
+    return mapOrg(org)
   },
-  getOrg(id: string): Org | null {
-    return getDb().prepare('SELECT * FROM organizations WHERE id=?').get(id) as Org | null
+  async getOrg(id: string): Promise<Org | null> {
+    const org = await prisma.organization.findUnique({ where: { id } })
+    return org ? mapOrg(org) : null
   },
-  getOrgByInviteCode(code: string): Org | null {
-    return getDb().prepare('SELECT * FROM organizations WHERE invite_code=?').get(code.toUpperCase()) as Org | null
+  async getOrgByInviteCode(code: string): Promise<Org | null> {
+    const org = await prisma.organization.findUnique({ where: { inviteCode: code.toUpperCase() } })
+    return org ? mapOrg(org) : null
   },
 
-  // Members
-  createMember(orgId: string, name: string, role: 'admin' | 'member' = 'member'): Member {
-    const d = getDb(), id = randomUUID()
+  // ── Members ────────────────────────────────────────────────────────────────
+  async createMember(orgId: string, name: string, role: 'admin' | 'member' = 'member'): Promise<Member> {
     const status = role === 'admin' ? 'active' : 'pending'
-    d.prepare('INSERT INTO members VALUES (?,?,?,?,?,?)').run(id, orgId, name, role, status, Date.now())
-    return d.prepare('SELECT * FROM members WHERE id=?').get(id) as Member
+    const member = await prisma.member.create({
+      data: { id: randomUUID(), orgId, name, role, status, createdAt: Date.now() },
+    })
+    return mapMember(member)
   },
-  getMember(id: string): Member | null {
-    return getDb().prepare('SELECT * FROM members WHERE id=?').get(id) as Member | null
+  async getMember(id: string): Promise<Member | null> {
+    const member = await prisma.member.findUnique({ where: { id } })
+    return member ? mapMember(member) : null
   },
-  getOrgMembers(orgId: string): Member[] {
-    return getDb().prepare("SELECT * FROM members WHERE org_id=? AND status='active' ORDER BY created_at").all(orgId) as Member[]
+  async getOrgMembers(orgId: string): Promise<Member[]> {
+    const members = await prisma.member.findMany({ where: { orgId, status: 'active' }, orderBy: { createdAt: 'asc' } })
+    return members.map(mapMember)
   },
-  getPendingMembers(orgId: string): Member[] {
-    return getDb().prepare("SELECT * FROM members WHERE org_id=? AND status='pending' ORDER BY created_at").all(orgId) as Member[]
+  async getPendingMembers(orgId: string): Promise<Member[]> {
+    const members = await prisma.member.findMany({ where: { orgId, status: 'pending' }, orderBy: { createdAt: 'asc' } })
+    return members.map(mapMember)
   },
-  approveMember(id: string) { getDb().prepare("UPDATE members SET status='active' WHERE id=?").run(id) },
-  rejectMember(id: string) { getDb().prepare("UPDATE members SET status='rejected' WHERE id=?").run(id) },
-  updateMemberRole(id: string, role: string) { getDb().prepare('UPDATE members SET role=? WHERE id=?').run(role, id) },
-  deleteMember(id: string) { getDb().prepare('DELETE FROM members WHERE id=?').run(id) },
+  async approveMember(id: string): Promise<void> {
+    await prisma.member.update({ where: { id }, data: { status: 'active' } })
+  },
+  async rejectMember(id: string): Promise<void> {
+    await prisma.member.update({ where: { id }, data: { status: 'rejected' } })
+  },
+  async updateMemberRole(id: string, role: string): Promise<void> {
+    await prisma.member.update({ where: { id }, data: { role } })
+  },
+  async deleteMember(id: string): Promise<void> {
+    await prisma.member.delete({ where: { id } })
+  },
 
-  // Poker Sessions
-  createPokerSession(orgId: string, name: string, scale: string, createdBy: string): PokerSession {
-    const d = getDb(), id = randomUUID()
-    d.prepare('INSERT INTO poker_sessions VALUES (?,?,?,?,?,?,?,?)').run(id, orgId, name, scale, 'voting', null, createdBy, Date.now())
-    return d.prepare('SELECT * FROM poker_sessions WHERE id=?').get(id) as PokerSession
+  // ── Poker Sessions ─────────────────────────────────────────────────────────
+  async createPokerSession(orgId: string, name: string, scale: string, createdBy: string): Promise<PokerSession> {
+    const session = await prisma.pokerSession.create({
+      data: { id: randomUUID(), orgId, name, scale, status: 'voting', currentStoryId: null, createdBy, createdAt: Date.now() },
+    })
+    return mapSession(session)
   },
-  getPokerSessions(orgId: string): PokerSession[] {
-    return getDb().prepare('SELECT * FROM poker_sessions WHERE org_id=? ORDER BY created_at DESC').all(orgId) as PokerSession[]
+  async getPokerSessions(orgId: string): Promise<PokerSession[]> {
+    const sessions = await prisma.pokerSession.findMany({ where: { orgId }, orderBy: { createdAt: 'desc' } })
+    return sessions.map(mapSession)
   },
-  getPokerSession(id: string): PokerSession | null {
-    return getDb().prepare('SELECT * FROM poker_sessions WHERE id=?').get(id) as PokerSession | null
+  async getPokerSession(id: string): Promise<PokerSession | null> {
+    const session = await prisma.pokerSession.findUnique({ where: { id } })
+    return session ? mapSession(session) : null
   },
-  updatePokerSessionStatus(id: string, status: string) { getDb().prepare('UPDATE poker_sessions SET status=? WHERE id=?').run(status, id) },
-  setCurrentStory(sessionId: string, storyId: string | null) { getDb().prepare('UPDATE poker_sessions SET current_story_id=? WHERE id=?').run(storyId, sessionId) },
+  async updatePokerSessionStatus(id: string, status: string): Promise<void> {
+    await prisma.pokerSession.update({ where: { id }, data: { status } })
+  },
+  async setCurrentStory(sessionId: string, storyId: string | null): Promise<void> {
+    await prisma.pokerSession.update({ where: { id: sessionId }, data: { currentStoryId: storyId } })
+  },
 
-  // Poker Stories
-  addStory(sessionId: string, title: string, description?: string): PokerStory {
-    const d = getDb(), id = randomUUID()
-    const { c } = d.prepare('SELECT COUNT(*) as c FROM poker_stories WHERE session_id=?').get(sessionId) as { c: number }
-    d.prepare('INSERT INTO poker_stories VALUES (?,?,?,?,?,?,?)').run(id, sessionId, title, description ?? null, null, c, Date.now())
-    const story = d.prepare('SELECT * FROM poker_stories WHERE id=?').get(id) as PokerStory
-    const sess = d.prepare('SELECT current_story_id FROM poker_sessions WHERE id=?').get(sessionId) as { current_story_id: string | null }
-    if (!sess.current_story_id) d.prepare('UPDATE poker_sessions SET current_story_id=? WHERE id=?').run(id, sessionId)
-    return story
+  // ── Poker Stories ──────────────────────────────────────────────────────────
+  async addStory(sessionId: string, title: string, description?: string): Promise<PokerStory> {
+    const count = await prisma.pokerStory.count({ where: { sessionId } })
+    const story = await prisma.pokerStory.create({
+      data: { id: randomUUID(), sessionId, title, description: description ?? null, estimate: null, orderIndex: count, createdAt: Date.now() },
+    })
+    const sess = await prisma.pokerSession.findUnique({ where: { id: sessionId }, select: { currentStoryId: true } })
+    if (!sess?.currentStoryId) {
+      await prisma.pokerSession.update({ where: { id: sessionId }, data: { currentStoryId: story.id } })
+    }
+    return mapStory(story)
   },
-  getStories(sessionId: string): PokerStory[] {
-    return getDb().prepare('SELECT * FROM poker_stories WHERE session_id=? ORDER BY order_index').all(sessionId) as PokerStory[]
+  async getStories(sessionId: string): Promise<PokerStory[]> {
+    const stories = await prisma.pokerStory.findMany({ where: { sessionId }, orderBy: { orderIndex: 'asc' } })
+    return stories.map(mapStory)
   },
-  setStoryEstimate(storyId: string, estimate: string) { getDb().prepare('UPDATE poker_stories SET estimate=? WHERE id=?').run(estimate, storyId) },
+  async setStoryEstimate(storyId: string, estimate: string): Promise<void> {
+    await prisma.pokerStory.update({ where: { id: storyId }, data: { estimate } })
+  },
 
-  // Poker Votes
-  saveVote(sessionId: string, storyId: string, memberId: string, vote: string) {
-    const d = getDb()
-    const ex = d.prepare('SELECT id FROM poker_votes WHERE story_id=? AND member_id=?').get(storyId, memberId)
-    if (ex) d.prepare('UPDATE poker_votes SET vote=? WHERE story_id=? AND member_id=?').run(vote, storyId, memberId)
-    else d.prepare('INSERT INTO poker_votes VALUES (?,?,?,?,?,?)').run(randomUUID(), sessionId, storyId, memberId, vote, Date.now())
+  // ── Poker Votes ────────────────────────────────────────────────────────────
+  async saveVote(sessionId: string, storyId: string, memberId: string, vote: string): Promise<void> {
+    await prisma.pokerVote.upsert({
+      where: { storyId_memberId: { storyId, memberId } },
+      update: { vote },
+      create: { id: randomUUID(), sessionId, storyId, memberId, vote, createdAt: Date.now() },
+    })
   },
-  getVotes(sessionId: string, storyId: string): PokerVote[] {
-    return getDb().prepare('SELECT * FROM poker_votes WHERE session_id=? AND story_id=?').all(sessionId, storyId) as PokerVote[]
+  async getVotes(sessionId: string, storyId: string): Promise<PokerVote[]> {
+    const votes = await prisma.pokerVote.findMany({ where: { sessionId, storyId } })
+    return votes.map(mapVote)
   },
-  clearVotes(sessionId: string, storyId: string) { getDb().prepare('DELETE FROM poker_votes WHERE session_id=? AND story_id=?').run(sessionId, storyId) },
+  async clearVotes(sessionId: string, storyId: string): Promise<void> {
+    await prisma.pokerVote.deleteMany({ where: { sessionId, storyId } })
+  },
 
-  // WSJF
-  createWSJFFeature(orgId: string, d: { name: string; business_value: number; time_criticality: number; risk_reduction: number; job_size: number }): WSJFFeature {
-    const db2 = getDb(), id = randomUUID()
-    db2.prepare('INSERT INTO wsjf_features VALUES (?,?,?,?,?,?,?,?)').run(id, orgId, d.name, d.business_value, d.time_criticality, d.risk_reduction, d.job_size, Date.now())
-    return db2.prepare('SELECT * FROM wsjf_features WHERE id=?').get(id) as WSJFFeature
+  // ── WSJF ──────────────────────────────────────────────────────────────────
+  async createWSJFFeature(orgId: string, d: { name: string; business_value: number; time_criticality: number; risk_reduction: number; job_size: number }): Promise<WSJFFeature> {
+    const f = await prisma.wsjfFeature.create({
+      data: { id: randomUUID(), orgId, name: d.name, businessValue: d.business_value, timeCriticality: d.time_criticality, riskReduction: d.risk_reduction, jobSize: d.job_size, createdAt: Date.now() },
+    })
+    return mapWSJF(f)
   },
-  getWSJFFeatures(orgId: string): WSJFFeature[] {
-    return getDb().prepare('SELECT * FROM wsjf_features WHERE org_id=? ORDER BY created_at').all(orgId) as WSJFFeature[]
+  async getWSJFFeatures(orgId: string): Promise<WSJFFeature[]> {
+    const features = await prisma.wsjfFeature.findMany({ where: { orgId }, orderBy: { createdAt: 'asc' } })
+    return features.map(mapWSJF)
   },
-  updateWSJFFeature(id: string, data: Partial<{ name: string; business_value: number; time_criticality: number; risk_reduction: number; job_size: number }>) {
-    const entries = Object.entries(data).filter(([, v]) => v !== undefined)
-    if (!entries.length) return
-    getDb().prepare(`UPDATE wsjf_features SET ${entries.map(([k]) => `${k}=?`).join(',')} WHERE id=?`).run(...entries.map(([, v]) => v), id)
+  async updateWSJFFeature(id: string, data: Partial<{ name: string; business_value: number; time_criticality: number; risk_reduction: number; job_size: number }>): Promise<void> {
+    await prisma.wsjfFeature.update({
+      where: { id },
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.business_value !== undefined && { businessValue: data.business_value }),
+        ...(data.time_criticality !== undefined && { timeCriticality: data.time_criticality }),
+        ...(data.risk_reduction !== undefined && { riskReduction: data.risk_reduction }),
+        ...(data.job_size !== undefined && { jobSize: data.job_size }),
+      },
+    })
   },
-  deleteWSJFFeature(id: string) { getDb().prepare('DELETE FROM wsjf_features WHERE id=?').run(id) },
+  async deleteWSJFFeature(id: string): Promise<void> {
+    await prisma.wsjfFeature.delete({ where: { id } })
+  },
 
-  // RICE
-  createRICEFeature(orgId: string, d: { name: string; reach: number; impact: number; confidence: number; effort: number }): RICEFeature {
-    const db2 = getDb(), id = randomUUID()
-    db2.prepare('INSERT INTO rice_features VALUES (?,?,?,?,?,?,?,?)').run(id, orgId, d.name, d.reach, d.impact, d.confidence, d.effort, Date.now())
-    return db2.prepare('SELECT * FROM rice_features WHERE id=?').get(id) as RICEFeature
+  // ── RICE ──────────────────────────────────────────────────────────────────
+  async createRICEFeature(orgId: string, d: { name: string; reach: number; impact: number; confidence: number; effort: number }): Promise<RICEFeature> {
+    const f = await prisma.riceFeature.create({
+      data: { id: randomUUID(), orgId, name: d.name, reach: d.reach, impact: d.impact, confidence: d.confidence, effort: d.effort, createdAt: Date.now() },
+    })
+    return mapRICE(f)
   },
-  getRICEFeatures(orgId: string): RICEFeature[] {
-    return getDb().prepare('SELECT * FROM rice_features WHERE org_id=? ORDER BY created_at').all(orgId) as RICEFeature[]
+  async getRICEFeatures(orgId: string): Promise<RICEFeature[]> {
+    const features = await prisma.riceFeature.findMany({ where: { orgId }, orderBy: { createdAt: 'asc' } })
+    return features.map(mapRICE)
   },
-  updateRICEFeature(id: string, data: Partial<{ name: string; reach: number; impact: number; confidence: number; effort: number }>) {
-    const entries = Object.entries(data).filter(([, v]) => v !== undefined)
-    if (!entries.length) return
-    getDb().prepare(`UPDATE rice_features SET ${entries.map(([k]) => `${k}=?`).join(',')} WHERE id=?`).run(...entries.map(([, v]) => v), id)
+  async updateRICEFeature(id: string, data: Partial<{ name: string; reach: number; impact: number; confidence: number; effort: number }>): Promise<void> {
+    await prisma.riceFeature.update({ where: { id }, data })
   },
-  deleteRICEFeature(id: string) { getDb().prepare('DELETE FROM rice_features WHERE id=?').run(id) },
+  async deleteRICEFeature(id: string): Promise<void> {
+    await prisma.riceFeature.delete({ where: { id } })
+  },
 
-  // Estimation Items
-  createEstimationItem(orgId: string, d: { name: string; description?: string; scale: string }): EstimationItem {
-    const db2 = getDb(), id = randomUUID()
-    db2.prepare('INSERT INTO estimation_items VALUES (?,?,?,?,?,?,?)').run(id, orgId, d.name, d.description ?? null, null, d.scale, Date.now())
-    return db2.prepare('SELECT * FROM estimation_items WHERE id=?').get(id) as EstimationItem
+  // ── Estimation Items ───────────────────────────────────────────────────────
+  async createEstimationItem(orgId: string, d: { name: string; description?: string; scale: string }): Promise<EstimationItem> {
+    const item = await prisma.estimationItem.create({
+      data: { id: randomUUID(), orgId, name: d.name, description: d.description ?? null, estimate: null, scale: d.scale, createdAt: Date.now() },
+    })
+    return mapEstItem(item)
   },
-  getEstimationItems(orgId: string): EstimationItem[] {
-    return getDb().prepare('SELECT * FROM estimation_items WHERE org_id=? ORDER BY created_at').all(orgId) as EstimationItem[]
+  async getEstimationItems(orgId: string): Promise<EstimationItem[]> {
+    const items = await prisma.estimationItem.findMany({ where: { orgId }, orderBy: { createdAt: 'asc' } })
+    return items.map(mapEstItem)
   },
-  updateEstimationItem(id: string, data: Partial<{ name: string; description: string; estimate: string | null }>) {
-    const entries = Object.entries(data).filter(([, v]) => v !== undefined)
-    if (!entries.length) return
-    getDb().prepare(`UPDATE estimation_items SET ${entries.map(([k]) => `${k}=?`).join(',')} WHERE id=?`).run(...entries.map(([, v]) => v), id)
+  async updateEstimationItem(id: string, data: Partial<{ name: string; description: string; estimate: string | null }>): Promise<void> {
+    await prisma.estimationItem.update({
+      where: { id },
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.description !== undefined && { description: data.description }),
+        ...(data.estimate !== undefined && { estimate: data.estimate }),
+      },
+    })
   },
-  deleteEstimationItem(id: string) { getDb().prepare('DELETE FROM estimation_items WHERE id=?').run(id) },
+  async deleteEstimationItem(id: string): Promise<void> {
+    await prisma.estimationItem.delete({ where: { id } })
+  },
 
-  // Velocity Records
-  createVelocityRecord(orgId: string, d: { sprint_name: string; planned: number; completed: number }): VelocityRecord {
-    const db2 = getDb(), id = randomUUID()
-    db2.prepare('INSERT INTO velocity_records VALUES (?,?,?,?,?,?)').run(id, orgId, d.sprint_name, d.planned, d.completed, Date.now())
-    return db2.prepare('SELECT * FROM velocity_records WHERE id=?').get(id) as VelocityRecord
+  // ── Velocity Records ───────────────────────────────────────────────────────
+  async createVelocityRecord(orgId: string, d: { sprint_name: string; planned: number; completed: number }): Promise<VelocityRecord> {
+    const record = await prisma.velocityRecord.create({
+      data: { id: randomUUID(), orgId, sprintName: d.sprint_name, planned: d.planned, completed: d.completed, createdAt: Date.now() },
+    })
+    return mapVelocity(record)
   },
-  getVelocityRecords(orgId: string): VelocityRecord[] {
-    return getDb().prepare('SELECT * FROM velocity_records WHERE org_id=? ORDER BY created_at').all(orgId) as VelocityRecord[]
+  async getVelocityRecords(orgId: string): Promise<VelocityRecord[]> {
+    const records = await prisma.velocityRecord.findMany({ where: { orgId }, orderBy: { createdAt: 'asc' } })
+    return records.map(mapVelocity)
   },
-  updateVelocityRecord(id: string, data: Partial<{ sprint_name: string; planned: number; completed: number }>) {
-    const entries = Object.entries(data).filter(([, v]) => v !== undefined)
-    if (!entries.length) return
-    getDb().prepare(`UPDATE velocity_records SET ${entries.map(([k]) => `${k}=?`).join(',')} WHERE id=?`).run(...entries.map(([, v]) => v), id)
+  async updateVelocityRecord(id: string, data: Partial<{ sprint_name: string; planned: number; completed: number }>): Promise<void> {
+    await prisma.velocityRecord.update({
+      where: { id },
+      data: {
+        ...(data.sprint_name !== undefined && { sprintName: data.sprint_name }),
+        ...(data.planned !== undefined && { planned: data.planned }),
+        ...(data.completed !== undefined && { completed: data.completed }),
+      },
+    })
   },
-  deleteVelocityRecord(id: string) { getDb().prepare('DELETE FROM velocity_records WHERE id=?').run(id) },
+  async deleteVelocityRecord(id: string): Promise<void> {
+    await prisma.velocityRecord.delete({ where: { id } })
+  },
 }
