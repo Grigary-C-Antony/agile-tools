@@ -1,7 +1,7 @@
+import { Suspense } from 'react'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { Sidebar } from '@/components/layout/Sidebar'
-import { TopNav } from '@/components/layout/TopNav'
 import { db } from '@/lib/db'
 import { readSessionFromCookie } from '@/lib/session'
 
@@ -45,9 +45,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen">
-      <Sidebar />
-      <TopNav />
-      <main className="ml-64 pt-16 min-h-screen">
+      <Suspense fallback={null}>
+        <Sidebar />
+      </Suspense>
+      <main className="ml-64 min-h-screen">
         {children}
       </main>
     </div>

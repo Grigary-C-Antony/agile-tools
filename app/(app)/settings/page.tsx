@@ -1,17 +1,25 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { Input, Textarea } from '@/components/ui/Input'
-import { MOCK_ORG, MOCK_USERS } from '@/lib/mock-data'
+import { Input } from '@/components/ui/Input'
 import type { AppSettings } from '@/lib/types'
 
-const currentUser = MOCK_USERS[0]
+// ── Session data shape returned by /api/auth/session ──────────────────────
+interface SessionInfo {
+  memberId: string
+  orgId: string
+  memberName: string
+  email: string
+  role: string
+  status: string
+  orgName: string
+  inviteCode: string
+}
 
-type SettingsTab = 'general' | 'org' | 'integrations' | 'notifications' | 'team'
-
+// ── Shared layout primitives ───────────────────────────────────────────────
 function SettingsSection({ title, description, children }: {
   title: string
   description?: string
@@ -54,14 +62,15 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
       onClick={() => onChange(!checked)}
       className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${checked ? 'bg-primary' : 'bg-white/10'}`}
     >
-      <span
-        className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${checked ? 'translate-x-6' : 'translate-x-1'}`}
-      />
+      <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
     </button>
   )
 }
 
-function GeneralSettings() {
+// ── General / Appearance tab ───────────────────────────────────────────────
+function GeneralSettings({ session }: { session: SessionInfo }) {
+  const [name, setName] = useState(session.memberName)
+  const [email, setEmail] = useState(session.email)
   const [settings, setSettings] = useState<AppSettings>({
     theme: 'dark',
     language: 'en',
@@ -80,6 +89,18 @@ function GeneralSettings() {
 
   return (
     <div className="space-y-6">
+      <SettingsSection title="Profile" description="Your personal account details.">
+        <SettingsRow label="Display Name">
+          <Input value={name} onChange={e => setName(e.target.value)} className="w-52" />
+        </SettingsRow>
+        <SettingsRow label="Email Address">
+          <Input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-52" />
+        </SettingsRow>
+        <SettingsRow label="Role" description="Your role in the organization.">
+          <Badge variant="primary">{session.role === 'admin' ? 'Admin' : 'Member'}</Badge>
+        </SettingsRow>
+      </SettingsSection>
+
       <SettingsSection title="Appearance" description="Customize how the application looks.">
         <SettingsRow label="Theme" description="Choose your preferred color scheme.">
           <div className="flex gap-1 glass-card p-1 rounded-xl border-white/5">
@@ -135,13 +156,22 @@ function GeneralSettings() {
   )
 }
 
-function OrgSettings() {
-  const [name, setName] = useState(MOCK_ORG.name)
-  const [requireApproval, setRequireApproval] = useState(MOCK_ORG.settings.requireApproval)
-  const [defaultScale, setDefaultScale] = useState(MOCK_ORG.settings.defaultEstimationScale)
-  const [timezone, setTimezone] = useState(MOCK_ORG.settings.timezone)
-  const [workdays, setWorkdays] = useState(MOCK_ORG.settings.workdaysPerWeek)
-  const [hoursDay, setHoursDay] = useState(MOCK_ORG.settings.hoursPerDay)
+// ── Organization tab ───────────────────────────────────────────────────────
+function OrgSettings({ session }: { session: SessionInfo }) {
+  const [name, setName] = useState(session.orgName)
+  const [inviteCode] = useState(session.inviteCode)
+  const [copied, setCopied] = useState(false)
+  const [requireApproval, setRequireApproval] = useState(true)
+  const [defaultScale, setDefaultScale] = useState<'fibonacci' | 'tshirt' | 'powers-of-2'>('fibonacci')
+  const [timezone, setTimezone] = useState('America/New_York')
+  const [workdays, setWorkdays] = useState(5)
+  const [hoursDay, setHoursDay] = useState(8)
+
+  const copyCode = () => {
+    navigator.clipboard.writeText(inviteCode)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   return (
     <div className="space-y-6">
@@ -151,12 +181,9 @@ function OrgSettings() {
         </SettingsRow>
         <SettingsRow label="Invite Code" description="Share with new members to join.">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-primary font-bold">{MOCK_ORG.inviteCode}</span>
-            <button className="text-on-surface-variant hover:text-primary transition-colors">
-              <span className="material-symbols-outlined text-[16px]">refresh</span>
-            </button>
-            <button className="text-on-surface-variant hover:text-primary transition-colors">
-              <span className="material-symbols-outlined text-[16px]">content_copy</span>
+            <span className="font-mono text-primary font-bold tracking-widest">{inviteCode}</span>
+            <button onClick={copyCode} className="text-on-surface-variant hover:text-primary transition-colors" title="Copy code">
+              <span className="material-symbols-outlined text-[16px]">{copied ? 'check' : 'content_copy'}</span>
             </button>
           </div>
         </SettingsRow>
@@ -195,24 +222,14 @@ function OrgSettings() {
           </select>
         </SettingsRow>
         <SettingsRow label="Work Days per Week">
-          <input
-            type="number"
-            min={1}
-            max={7}
-            value={workdays}
+          <input type="number" min={1} max={7} value={workdays}
             onChange={e => setWorkdays(parseInt(e.target.value))}
-            className="glass-input w-16 rounded-xl px-3 py-2 text-sm text-on-surface text-center"
-          />
+            className="glass-input w-16 rounded-xl px-3 py-2 text-sm text-on-surface text-center" />
         </SettingsRow>
         <SettingsRow label="Work Hours per Day">
-          <input
-            type="number"
-            min={1}
-            max={24}
-            value={hoursDay}
+          <input type="number" min={1} max={24} value={hoursDay}
             onChange={e => setHoursDay(parseInt(e.target.value))}
-            className="glass-input w-16 rounded-xl px-3 py-2 text-sm text-on-surface text-center"
-          />
+            className="glass-input w-16 rounded-xl px-3 py-2 text-sm text-on-surface text-center" />
         </SettingsRow>
       </SettingsSection>
 
@@ -227,12 +244,9 @@ function OrgSettings() {
   )
 }
 
+// ── Integrations tab ───────────────────────────────────────────────────────
 function IntegrationCard({ icon, name, description, connected, color }: {
-  icon: string
-  name: string
-  description: string
-  connected: boolean
-  color: string
+  icon: string; name: string; description: string; connected: boolean; color: string
 }) {
   const [isConnected, setIsConnected] = useState(connected)
   return (
@@ -250,11 +264,7 @@ function IntegrationCard({ icon, name, description, connected, color }: {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {isConnected && <Badge variant="success" dot>Connected</Badge>}
-          <Button
-            variant={isConnected ? 'glass' : 'primary'}
-            size="sm"
-            onClick={() => setIsConnected(p => !p)}
-          >
+          <Button variant={isConnected ? 'glass' : 'primary'} size="sm" onClick={() => setIsConnected(p => !p)}>
             {isConnected ? 'Disconnect' : 'Connect'}
           </Button>
         </div>
@@ -263,14 +273,38 @@ function IntegrationCard({ icon, name, description, connected, color }: {
   )
 }
 
+// ── Page ───────────────────────────────────────────────────────────────────
+type SettingsTab = 'general' | 'org' | 'integrations'
+
 const TABS: { id: SettingsTab; label: string; icon: string }[] = [
   { id: 'general', label: 'General', icon: 'tune' },
   { id: 'org', label: 'Organization', icon: 'business' },
   { id: 'integrations', label: 'Integrations', icon: 'extension' },
 ]
 
+function initials(name: string) {
+  return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+}
+
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+  const [session, setSession] = useState<SessionInfo | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/auth/session')
+      .then(r => r.json())
+      .then(d => { setSession(d.session); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [])
+
+  const isAdmin = session?.role === 'admin'
+
+  useEffect(() => {
+    if (!loading && !isAdmin && (activeTab === 'org' || activeTab === 'integrations')) {
+      setActiveTab('general')
+    }
+  }, [loading, isAdmin, activeTab])
 
   return (
     <div className="p-6 lg:p-8 max-w-[1100px]">
@@ -280,9 +314,9 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-6">
-        {/* ── Sidebar ── */}
+        {/* ── Left nav ── */}
         <div className="space-y-1 animate-fade-in">
-          {TABS.map(tab => (
+          {TABS.filter(tab => tab.id === 'general' || isAdmin).map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -297,39 +331,55 @@ export default function SettingsPage() {
             </button>
           ))}
 
+          {/* Profile quick-view */}
           <div className="pt-3 border-t border-white/5 mt-3">
-            {/* Profile quick view */}
             <div className="p-3 glass-card rounded-xl border-white/5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-xl gradient-brand flex items-center justify-center text-white font-bold text-sm shrink-0">
-                  {currentUser.initials}
+              {loading || !session ? (
+                <div className="h-14 flex items-center justify-center">
+                  <span className="text-xs text-on-surface-variant/40">Loading…</span>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-on-surface truncate">{currentUser.name}</p>
-                  <p className="text-[10px] text-on-surface-variant/50 truncate">{currentUser.email}</p>
-                </div>
-              </div>
-              <Badge variant="primary">Admin</Badge>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-xl gradient-brand flex items-center justify-center text-white font-bold text-sm shrink-0">
+                      {initials(session.memberName)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-on-surface truncate">{session.memberName}</p>
+                      <p className="text-[10px] text-on-surface-variant/50 truncate">{session.email}</p>
+                    </div>
+                  </div>
+                  <Badge variant="primary">{session.role === 'admin' ? 'Admin' : 'Member'}</Badge>
+                </>
+              )}
             </div>
           </div>
         </div>
 
         {/* ── Content ── */}
         <div className="animate-fade-in min-w-0">
-          {activeTab === 'general' && <GeneralSettings />}
-          {activeTab === 'org' && <OrgSettings />}
-          {activeTab === 'integrations' && (
-            <div className="space-y-4">
-              <div className="mb-6">
-                <h3 className="text-headline text-on-surface">Integrations</h3>
-                <p className="text-sm text-on-surface-variant/60 mt-1">Connect your favorite tools to supercharge your workflow.</p>
-              </div>
-              <IntegrationCard icon="J" name="Jira" description="Import backlogs and sync story points." connected={false} color="#0052CC" />
-              <IntegrationCard icon="C" name="Confluence" description="Link documentation to your planning sessions." connected={false} color="#0052CC" />
-              <IntegrationCard icon="#" name="Slack" description="Get notifications and control sessions from Slack." connected={true} color="#4A154B" />
-              <IntegrationCard icon="G" name="GitHub" description="Reference PRs and issues in estimation sessions." connected={false} color="#333333" />
-              <IntegrationCard icon="N" name="Notion" description="Export reports directly to Notion databases." connected={false} color="#191919" />
+          {loading || !session ? (
+            <div className="flex items-center justify-center h-40">
+              <span className="text-on-surface-variant/40">Loading settings…</span>
             </div>
+          ) : (
+            <>
+              {activeTab === 'general' && <GeneralSettings session={session} />}
+              {activeTab === 'org' && <OrgSettings session={session} />}
+              {activeTab === 'integrations' && (
+                <div className="space-y-4">
+                  <div className="mb-6">
+                    <h3 className="text-headline text-on-surface">Integrations</h3>
+                    <p className="text-sm text-on-surface-variant/60 mt-1">Connect your favorite tools to supercharge your workflow.</p>
+                  </div>
+                  <IntegrationCard icon="J" name="Jira" description="Import backlogs and sync story points." connected={false} color="#0052CC" />
+                  <IntegrationCard icon="C" name="Confluence" description="Link documentation to your planning sessions." connected={false} color="#0052CC" />
+                  <IntegrationCard icon="#" name="Slack" description="Get notifications and control sessions from Slack." connected={false} color="#4A154B" />
+                  <IntegrationCard icon="G" name="GitHub" description="Reference PRs and issues in estimation sessions." connected={false} color="#333333" />
+                  <IntegrationCard icon="N" name="Notion" description="Export reports directly to Notion databases." connected={false} color="#191919" />
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

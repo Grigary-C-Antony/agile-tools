@@ -4,6 +4,8 @@ import type {
   PokerStory as PrismaPokerStory, PokerVote as PrismaPokerVote,
   WsjfFeature as PrismaWsjfFeature, RiceFeature as PrismaRiceFeature,
   EstimationItem as PrismaEstimationItem, VelocityRecord as PrismaVelocityRecord,
+  MemberPto as PrismaMemberPto,
+  SprintHoliday as PrismaSprintHoliday,
 } from '@prisma/client'
 import { randomUUID } from 'crypto'
 
@@ -16,7 +18,7 @@ if (process.env.NODE_ENV !== 'production') g.prisma = prisma
 
 // ── Exported types (snake_case for backward compat with API routes & pages) ──
 export interface Org { id: string; name: string; invite_code: string; created_at: number }
-export interface Member { id: string; org_id: string; name: string; role: 'admin' | 'member'; status: 'pending' | 'active' | 'rejected'; created_at: number }
+export interface Member { id: string; org_id: string; name: string; email: string; role: 'admin' | 'member'; status: 'pending' | 'active' | 'rejected'; created_at: number }
 export interface PokerSession { id: string; org_id: string; name: string; scale: string; status: 'voting' | 'revealed' | 'completed'; current_story_id: string | null; created_by: string; created_at: number }
 export interface PokerStory { id: string; session_id: string; title: string; description: string | null; estimate: string | null; order_index: number; created_at: number }
 export interface PokerVote { id: string; session_id: string; story_id: string; member_id: string; vote: string; created_at: number }
@@ -24,6 +26,8 @@ export interface WSJFFeature { id: string; org_id: string; name: string; busines
 export interface RICEFeature { id: string; org_id: string; name: string; reach: number; impact: number; confidence: number; effort: number; created_at: number }
 export interface EstimationItem { id: string; org_id: string; name: string; description: string | null; estimate: string | null; scale: string; created_at: number }
 export interface VelocityRecord { id: string; org_id: string; sprint_name: string; planned: number; completed: number; created_at: number }
+export interface MemberPtoRecord { id: string; org_id: string; member_id: string; pto_days: number; updated_at: number }
+export interface SprintHolidayRecord { id: string; org_id: string; name: string; date: string; enabled: boolean; created_at: number }
 
 // ── Invite code ───────────────────────────────────────────────────────────────
 export function generateInviteCode(): string {
@@ -34,31 +38,37 @@ export function generateInviteCode(): string {
 
 // ── Mappers (Prisma camelCase → snake_case) ───────────────────────────────────
 const mapOrg = (o: Organization): Org =>
-  ({ id: o.id, name: o.name, invite_code: o.inviteCode, created_at: o.createdAt })
+  ({ id: o.id, name: o.name, invite_code: o.inviteCode, created_at: Number(o.createdAt) })
 
 const mapMember = (m: PrismaMember): Member =>
-  ({ id: m.id, org_id: m.orgId, name: m.name, role: m.role as Member['role'], status: m.status as Member['status'], created_at: m.createdAt })
+  ({ id: m.id, org_id: m.orgId, name: m.name, email: m.email, role: m.role as Member['role'], status: m.status as Member['status'], created_at: Number(m.createdAt) })
 
 const mapSession = (s: PrismaPokerSession): PokerSession =>
-  ({ id: s.id, org_id: s.orgId, name: s.name, scale: s.scale, status: s.status as PokerSession['status'], current_story_id: s.currentStoryId, created_by: s.createdBy, created_at: s.createdAt })
+  ({ id: s.id, org_id: s.orgId, name: s.name, scale: s.scale, status: s.status as PokerSession['status'], current_story_id: s.currentStoryId, created_by: s.createdBy, created_at: Number(s.createdAt) })
 
 const mapStory = (s: PrismaPokerStory): PokerStory =>
-  ({ id: s.id, session_id: s.sessionId, title: s.title, description: s.description, estimate: s.estimate, order_index: s.orderIndex, created_at: s.createdAt })
+  ({ id: s.id, session_id: s.sessionId, title: s.title, description: s.description, estimate: s.estimate, order_index: s.orderIndex, created_at: Number(s.createdAt) })
 
 const mapVote = (v: PrismaPokerVote): PokerVote =>
-  ({ id: v.id, session_id: v.sessionId, story_id: v.storyId, member_id: v.memberId, vote: v.vote, created_at: v.createdAt })
+  ({ id: v.id, session_id: v.sessionId, story_id: v.storyId, member_id: v.memberId, vote: v.vote, created_at: Number(v.createdAt) })
 
 const mapWSJF = (f: PrismaWsjfFeature): WSJFFeature =>
-  ({ id: f.id, org_id: f.orgId, name: f.name, business_value: f.businessValue, time_criticality: f.timeCriticality, risk_reduction: f.riskReduction, job_size: f.jobSize, created_at: f.createdAt })
+  ({ id: f.id, org_id: f.orgId, name: f.name, business_value: f.businessValue, time_criticality: f.timeCriticality, risk_reduction: f.riskReduction, job_size: f.jobSize, created_at: Number(f.createdAt) })
 
 const mapRICE = (f: PrismaRiceFeature): RICEFeature =>
-  ({ id: f.id, org_id: f.orgId, name: f.name, reach: f.reach, impact: f.impact, confidence: f.confidence, effort: f.effort, created_at: f.createdAt })
+  ({ id: f.id, org_id: f.orgId, name: f.name, reach: f.reach, impact: f.impact, confidence: f.confidence, effort: f.effort, created_at: Number(f.createdAt) })
 
 const mapEstItem = (i: PrismaEstimationItem): EstimationItem =>
-  ({ id: i.id, org_id: i.orgId, name: i.name, description: i.description, estimate: i.estimate, scale: i.scale, created_at: i.createdAt })
+  ({ id: i.id, org_id: i.orgId, name: i.name, description: i.description, estimate: i.estimate, scale: i.scale, created_at: Number(i.createdAt) })
 
 const mapVelocity = (r: PrismaVelocityRecord): VelocityRecord =>
-  ({ id: r.id, org_id: r.orgId, sprint_name: r.sprintName, planned: r.planned, completed: r.completed, created_at: r.createdAt })
+  ({ id: r.id, org_id: r.orgId, sprint_name: r.sprintName, planned: r.planned, completed: r.completed, created_at: Number(r.createdAt) })
+
+const mapMemberPto = (p: PrismaMemberPto): MemberPtoRecord =>
+  ({ id: p.id, org_id: p.orgId, member_id: p.memberId, pto_days: p.ptoDays, updated_at: Number(p.updatedAt) })
+
+const mapSprintHoliday = (h: PrismaSprintHoliday): SprintHolidayRecord =>
+  ({ id: h.id, org_id: h.orgId, name: h.name, date: h.date, enabled: h.enabled, created_at: Number(h.createdAt) })
 
 // ── DB operations ─────────────────────────────────────────────────────────────
 export const db = {
@@ -79,16 +89,25 @@ export const db = {
   },
 
   // ── Members ────────────────────────────────────────────────────────────────
-  async createMember(orgId: string, name: string, role: 'admin' | 'member' = 'member'): Promise<Member> {
+  async createMember(orgId: string, name: string, email: string, passwordHash: string, role: 'admin' | 'member' = 'member'): Promise<Member> {
     const status = role === 'admin' ? 'active' : 'pending'
     const member = await prisma.member.create({
-      data: { id: randomUUID(), orgId, name, role, status, createdAt: Date.now() },
+      data: { id: randomUUID(), orgId, name, email: email.toLowerCase().trim(), passwordHash, role, status, createdAt: Date.now() },
     })
     return mapMember(member)
   },
   async getMember(id: string): Promise<Member | null> {
     const member = await prisma.member.findUnique({ where: { id } })
     return member ? mapMember(member) : null
+  },
+  async getMemberByEmail(email: string): Promise<(Member & { passwordHash: string }) | null> {
+    const member = await prisma.member.findUnique({ where: { email: email.toLowerCase().trim() } })
+    if (!member) return null
+    return { ...mapMember(member), passwordHash: member.passwordHash }
+  },
+  async emailExists(email: string): Promise<boolean> {
+    const count = await prisma.member.count({ where: { email: email.toLowerCase().trim() } })
+    return count > 0
   },
   async getOrgMembers(orgId: string): Promise<Member[]> {
     const members = await prisma.member.findMany({ where: { orgId, status: 'active' }, orderBy: { createdAt: 'asc' } })
@@ -262,5 +281,36 @@ export const db = {
   },
   async deleteVelocityRecord(id: string): Promise<void> {
     await prisma.velocityRecord.delete({ where: { id } })
+  },
+
+  // ── Sprint Holidays ────────────────────────────────────────────────────────
+  async getSprintHolidays(orgId: string): Promise<SprintHolidayRecord[]> {
+    const records = await prisma.sprintHoliday.findMany({ where: { orgId }, orderBy: { createdAt: 'asc' } })
+    return records.map(mapSprintHoliday)
+  },
+  async createSprintHoliday(orgId: string, name: string, date: string): Promise<SprintHolidayRecord> {
+    const h = await prisma.sprintHoliday.create({
+      data: { id: randomUUID(), orgId, name, date, enabled: true, createdAt: Date.now() },
+    })
+    return mapSprintHoliday(h)
+  },
+  async updateSprintHoliday(id: string, enabled: boolean): Promise<void> {
+    await prisma.sprintHoliday.update({ where: { id }, data: { enabled } })
+  },
+  async deleteSprintHoliday(id: string): Promise<void> {
+    await prisma.sprintHoliday.delete({ where: { id } })
+  },
+
+  // ── Member PTO ─────────────────────────────────────────────────────────────
+  async getMemberPtos(orgId: string): Promise<MemberPtoRecord[]> {
+    const records = await prisma.memberPto.findMany({ where: { orgId } })
+    return records.map(mapMemberPto)
+  },
+  async upsertMemberPto(orgId: string, memberId: string, ptoDays: number): Promise<void> {
+    await prisma.memberPto.upsert({
+      where: { orgId_memberId: { orgId, memberId } },
+      update: { ptoDays, updatedAt: Date.now() },
+      create: { id: randomUUID(), orgId, memberId, ptoDays, updatedAt: Date.now() },
+    })
   },
 }

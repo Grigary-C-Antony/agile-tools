@@ -54,9 +54,9 @@ function ParticipantCard({ p, revealed, votes }: { p: Participant; revealed: boo
 function VotingCard({ value, selected, onClick }: { value: string; selected: boolean; onClick: () => void }) {
   return (
     <button onClick={onClick}
-      className={`poker-card w-12 md:w-16 h-16 md:h-24 rounded-xl font-bold text-xl md:text-2xl flex items-center justify-center border shadow-lg ${
-        selected ? 'selected bg-primary/20 border-primary text-white ring-4 ring-primary/10'
-          : 'bg-surface-container-high border-white/5 text-on-surface hover:border-primary/50 hover:bg-surface-container-highest'
+      className={`poker-card w-12 md:w-14 h-16 md:h-20 rounded-lg font-bold text-lg md:text-xl flex items-center justify-center border shadow-sm transition-all ${
+        selected ? 'selected bg-primary/20 border-primary text-white ring-2 ring-primary/20 scale-105'
+          : 'bg-surface-container-high border-white/5 text-on-surface hover:border-primary/50 hover:bg-surface-container-highest hover:scale-105'
       }`}>
       {value}
     </button>
@@ -78,6 +78,9 @@ export default function PokerSessionPage() {
   const [inviteOpen, setInviteOpen] = useState(false)
   const [addStoryOpen, setAddStoryOpen] = useState(false)
   const [newStoryTitle, setNewStoryTitle] = useState('')
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState('')
   const [endConfirmOpen, setEndConfirmOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const socketRef = useRef<Socket | null>(null)
@@ -95,6 +98,20 @@ export default function PokerSessionPage() {
   votes.forEach(v => { votesRecord[v.member_id] = v.vote })
   const modeVote = revealed ? calcModeVote(votesRecord) : null
   const avgVote = revealed ? calcAverageVote(votesRecord) : null
+
+  // Sort votes highest → lowest for reveal display; highlight min/max
+  const sortedVotes = revealed
+    ? [...votes].sort((a, b) => {
+        const na = parseFloat(a.vote), nb = parseFloat(b.vote)
+        if (isNaN(na) && isNaN(nb)) return 0
+        if (isNaN(na)) return 1
+        if (isNaN(nb)) return -1
+        return nb - na
+      })
+    : votes
+  const numericVals = votes.map(v => parseFloat(v.vote)).filter(n => !isNaN(n))
+  const maxVal = numericVals.length ? Math.max(...numericVals) : null
+  const minVal = numericVals.length && numericVals.length > 1 ? Math.min(...numericVals) : null
 
   // Fetch initial state
   useEffect(() => {
@@ -212,7 +229,29 @@ export default function PokerSessionPage() {
     if (!newStoryTitle.trim()) return
     emit('poker:add-story', { sessionId, title: newStoryTitle.trim() })
     setNewStoryTitle('')
+    setAiPrompt('')
+    setAiError('')
     setAddStoryOpen(false)
+  }
+
+  const handleAiGenerate = async () => {
+    if (!aiPrompt.trim()) return
+    setAiLoading(true)
+    setAiError('')
+    try {
+      const res = await fetch('/api/ai/story', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: aiPrompt.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed')
+      setNewStoryTitle(data.story)
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : 'AI generation failed')
+    } finally {
+      setAiLoading(false)
+    }
   }
 
   const handleEnd = () => {
@@ -251,10 +290,10 @@ export default function PokerSessionPage() {
   const isAdmin = userSession?.role === 'admin' || session.created_by === userSession?.memberId
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
-      <div className="relative z-10 flex flex-col h-full p-4 lg:p-6 gap-4">
+    <div className="flex flex-col h-screen overflow-hidden">
+      <div className="flex flex-col h-full p-4 lg:p-6 gap-4">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in shrink-0">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Link href="/planning-poker" className="text-on-surface-variant hover:text-primary transition-colors">
@@ -277,63 +316,123 @@ export default function PokerSessionPage() {
           </div>
         </div>
 
-        {/* Main area */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 min-h-0">
-          {/* Center stage */}
-          <GlassCard padding="lg" className="lg:col-span-3 flex flex-col overflow-hidden animate-fade-in">
-            <div className="absolute inset-0 bg-gradient-to-b from-primary/8 via-transparent to-transparent pointer-events-none" />
+        {/* Main 3-column grid */}
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[220px_1fr_220px] gap-4 min-h-0">
 
-            {/* Story info */}
-            <div className="text-center mb-auto pt-2 relative z-10">
+          {/* LEFT: Story Queue */}
+          <GlassCard padding="none" className="flex flex-col overflow-hidden animate-fade-in">
+            <div className="p-4 border-b border-white/5 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-on-surface text-sm">Stories</h3>
+              <Badge variant="glass">{stories.length}</Badge>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+              {stories.length === 0 ? (
+                <p className="text-xs text-on-surface-variant/30 text-center py-4">No stories added yet</p>
+              ) : stories.map((s, idx) => (
+                <button key={s.id} onClick={() => navigateStory(idx)}
+                  className={`w-full text-left p-2.5 rounded-lg text-xs transition-all ${
+                    s.id === session.current_story_id
+                      ? 'bg-primary/15 border border-primary/20 text-primary'
+                      : s.estimate
+                        ? 'text-on-surface-variant/40 hover:bg-white/5'
+                        : 'text-on-surface-variant/70 hover:bg-white/5'
+                  }`}>
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="truncate flex-1">{s.title}</span>
+                    {s.estimate
+                      ? <span className="font-mono font-bold text-secondary shrink-0">{s.estimate}</span>
+                      : s.id === session.current_story_id
+                        ? <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+                        : null
+                    }
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="p-3 border-t border-white/5 shrink-0">
+              <button onClick={() => setAddStoryOpen(true)}
+                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs text-primary/70 hover:text-primary hover:bg-primary/5 transition-all border border-dashed border-primary/20">
+                <span className="material-symbols-outlined text-[14px]">add</span>
+                Add Story
+              </button>
+            </div>
+          </GlassCard>
+
+          {/* CENTER: Voting stage */}
+          <GlassCard padding="none" className="flex flex-col overflow-hidden animate-fade-in">
+            <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none rounded-2xl" />
+
+            {/* Story title */}
+            <div className="p-5 border-b border-white/5 shrink-0 relative z-10">
               {currentStory ? (
-                <div className="flex items-center justify-between mb-2">
-                  <button className="text-on-surface-variant hover:text-primary transition-colors disabled:opacity-30"
+                <div className="flex items-center gap-2">
+                  <button className="text-on-surface-variant hover:text-primary transition-colors disabled:opacity-30 shrink-0"
                     disabled={currentStoryIdx <= 0} onClick={() => navigateStory(currentStoryIdx - 1)}>
-                    <span className="material-symbols-outlined">chevron_left</span>
+                    <span className="material-symbols-outlined text-[20px]">chevron_left</span>
                   </button>
-                  <div>
+                  <div className="flex-1 text-center min-w-0">
                     <p className="text-label-caps text-on-surface-variant/40 text-[10px] mb-1">
                       Story {currentStoryIdx + 1} of {stories.length}
                     </p>
-                    <h2 className="text-xl font-bold text-on-surface">{currentStory.title}</h2>
+                    <h2 className="text-lg font-bold text-on-surface truncate">{currentStory.title}</h2>
                     {currentStory.description && (
-                      <p className="text-on-surface-variant text-sm mt-1 max-w-xl mx-auto opacity-70">{currentStory.description}</p>
+                      <p className="text-on-surface-variant text-xs mt-1 opacity-70 line-clamp-2">{currentStory.description}</p>
                     )}
                   </div>
-                  <button className="text-on-surface-variant hover:text-primary transition-colors disabled:opacity-30"
+                  <button className="text-on-surface-variant hover:text-primary transition-colors disabled:opacity-30 shrink-0"
                     disabled={currentStoryIdx >= stories.length - 1} onClick={() => navigateStory(currentStoryIdx + 1)}>
-                    <span className="material-symbols-outlined">chevron_right</span>
+                    <span className="material-symbols-outlined text-[20px]">chevron_right</span>
                   </button>
                 </div>
               ) : (
-                <div className="text-on-surface-variant/40">
-                  <span className="material-symbols-outlined text-[36px] mb-2 block">list_alt</span>
-                  <p>No stories yet. Add stories to start estimating.</p>
+                <div className="text-center text-on-surface-variant/40">
+                  <p className="text-sm">No stories yet. Add a story to begin estimating.</p>
                 </div>
               )}
             </div>
 
             {/* Card reveal area */}
-            <div className="flex-1 flex items-center justify-center py-8 relative z-10">
+            <div className="flex-1 flex items-center justify-center px-4 py-3 overflow-y-auto relative z-10">
               {revealed ? (
-                <div className="text-center space-y-4">
-                  <div className="relative inline-block">
-                    <div className="absolute -inset-8 bg-primary/15 rounded-full blur-3xl" />
-                    <div className="relative w-36 h-52 glass-modal rounded-2xl border border-primary/30 flex flex-col items-center justify-center gap-2 shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-                      <span className="text-6xl font-black gradient-purple-text">{modeVote ?? '?'}</span>
-                      <span className="text-label-caps text-on-surface-variant/50 text-[10px]">Consensus</span>
+                /* Side-by-side: consensus left, individual votes right */
+                <div className="flex items-center gap-6 w-full justify-center flex-wrap">
+                  {/* Consensus */}
+                  <div className="relative shrink-0">
+                    <div className="absolute -inset-4 bg-primary/15 rounded-full blur-2xl" />
+                    <div className="relative w-28 h-36 glass-modal rounded-xl border border-primary/30 flex flex-col items-center justify-center gap-1 shadow-lg">
+                      <span className="text-5xl font-black gradient-purple-text">{modeVote ?? '?'}</span>
+                      <span className="text-[9px] text-on-surface-variant/50 font-bold tracking-widest uppercase">Consensus</span>
                     </div>
+                    {avgVote !== null && modeVote !== String(avgVote) && (
+                      <p className="text-[10px] text-on-surface-variant/50 text-center mt-1.5">
+                        Avg <span className="text-secondary font-bold">{avgVote}</span>
+                      </p>
+                    )}
                   </div>
-                  {avgVote !== null && modeVote !== String(avgVote) && (
-                    <p className="text-sm text-on-surface-variant">Average: <span className="font-bold text-secondary">{avgVote}</span></p>
-                  )}
-                  <div className="flex justify-center gap-3 mt-4 flex-wrap">
-                    {votes.map(v => {
+
+                  <div className="h-16 w-px bg-white/5 hidden sm:block" />
+
+                  {/* Sorted votes — highest first */}
+                  <div className="flex gap-2 flex-wrap justify-center">
+                    {sortedVotes.map(v => {
                       const p = participants.find(pp => pp.memberId === v.member_id)
+                      const numVal = parseFloat(v.vote)
+                      const isHigh = !isNaN(numVal) && numVal === maxVal
+                      const isLow = !isNaN(numVal) && numVal === minVal
                       return (
                         <div key={v.member_id} className="text-center">
-                          <div className="w-12 h-16 rounded-xl gradient-brand flex items-center justify-center font-bold text-white text-lg mb-1 neon-glow-purple">{v.vote}</div>
-                          <p className="text-[10px] text-on-surface-variant/50 font-bold">{MemberInitials(p?.name ?? v.member_id)}</p>
+                          <div className={`w-10 h-14 rounded-lg flex items-center justify-center font-bold text-sm mb-1 border ${
+                            isHigh
+                              ? 'bg-green-500/20 border-green-500/40 text-green-400'
+                              : isLow
+                                ? 'bg-error/20 border-error/40 text-error'
+                                : 'gradient-brand text-white border-transparent'
+                          }`}>
+                            {v.vote}
+                          </div>
+                          <p className="text-[9px] text-on-surface-variant/50 font-bold">{MemberInitials(p?.name ?? v.member_id)}</p>
+                          {isHigh && <span className="text-[8px] text-green-400 font-bold block">HIGH</span>}
+                          {isLow && <span className="text-[8px] text-error font-bold block">LOW</span>}
                         </div>
                       )
                     })}
@@ -341,17 +440,17 @@ export default function PokerSessionPage() {
                 </div>
               ) : (
                 <div className="relative">
-                  <div className="absolute -inset-10 bg-primary/15 rounded-full blur-3xl animate-pulse" />
-                  <div className="relative w-36 h-52 glass-modal rounded-2xl border border-white/20 flex flex-col items-center justify-center gap-3 shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+                  <div className="absolute -inset-8 bg-primary/10 rounded-full blur-3xl animate-pulse" />
+                  <div className="relative w-28 h-40 glass-modal rounded-2xl border border-white/20 flex flex-col items-center justify-center gap-2 shadow-lg">
                     {myVote ? (
                       <>
-                        <span className="text-6xl font-black gradient-purple-text">{myVote}</span>
-                        <span className="text-label-caps text-on-surface-variant/50 text-[10px]">Your Vote</span>
+                        <span className="text-5xl font-black gradient-purple-text">{myVote}</span>
+                        <span className="text-[10px] text-on-surface-variant/50 font-bold tracking-widest uppercase">Your Vote</span>
                       </>
                     ) : (
                       <>
-                        <span className="material-symbols-outlined text-on-surface-variant/20 text-[48px]">casino</span>
-                        <span className="text-label-caps text-on-surface-variant/30 text-[10px]">Pick a card</span>
+                        <span className="material-symbols-outlined text-on-surface-variant/20 text-[40px]">casino</span>
+                        <span className="text-[10px] text-on-surface-variant/30 font-bold tracking-widest uppercase">Pick a card</span>
                       </>
                     )}
                   </div>
@@ -359,32 +458,40 @@ export default function PokerSessionPage() {
               )}
             </div>
 
-            {/* Controls */}
-            <div className="flex justify-center gap-4 pb-2 relative z-10 flex-wrap">
-              {!revealed ? (
-                <Button variant="primary" size="lg" onClick={handleReveal}
-                  disabled={votedCount === 0 || !currentStory} className="w-48 neon-glow-purple">
-                  Reveal Votes
-                </Button>
+            {/* Controls — session creator / admin only */}
+            <div className="px-4 py-3 border-t border-white/5 flex justify-center gap-2 shrink-0 relative z-10">
+              {isAdmin ? (
+                <>
+                  {!revealed ? (
+                    <Button variant="primary" size="sm" onClick={handleReveal}
+                      disabled={votedCount === 0 || !currentStory} className="neon-glow-purple px-6">
+                      Reveal Votes
+                    </Button>
+                  ) : (
+                    <Button variant="primary" size="sm" onClick={handleAcceptStory}
+                      disabled={!currentStory} className="neon-glow-purple px-6" icon="check">
+                      Accept & Next
+                    </Button>
+                  )}
+                  <Button variant="glass" size="sm" onClick={handleReset}
+                    disabled={!currentStory} className="px-6">
+                    Reset Round
+                  </Button>
+                </>
               ) : (
-                <Button variant="primary" size="lg" onClick={handleAcceptStory}
-                  disabled={!currentStory} className="w-48 neon-glow-purple" icon="check">
-                  Accept & Next
-                </Button>
+                <p className="text-xs text-on-surface-variant/40 py-1">
+                  Waiting for the host to reveal…
+                </p>
               )}
-              <Button variant="glass" size="lg" onClick={handleReset} className="w-48" disabled={!currentStory}>
-                Reset Round
-              </Button>
             </div>
           </GlassCard>
 
-          {/* Participants sidebar */}
+          {/* RIGHT: Team */}
           <GlassCard padding="none" className="flex flex-col overflow-hidden animate-fade-in" style={{ animationDelay: '80ms' } as React.CSSProperties}>
-            <div className="p-4 border-b border-white/5 flex items-center justify-between">
-              <h3 className="font-bold text-on-surface">Team</h3>
+            <div className="p-4 border-b border-white/5 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-on-surface text-sm">Team</h3>
               <Badge variant="primary">{votedCount}/{totalCount}</Badge>
             </div>
-
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {participants.length === 0 ? (
                 <p className="text-xs text-on-surface-variant/40 text-center py-4">Waiting for participants…</p>
@@ -394,42 +501,22 @@ export default function PokerSessionPage() {
                 ))
               )}
             </div>
-
-            {/* Stories queue */}
-            <div className="border-t border-white/5 p-3">
-              <p className="text-label-caps text-on-surface-variant/40 text-[10px] mb-2">Stories Queue</p>
-              <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                {stories.length === 0 ? (
-                  <p className="text-xs text-on-surface-variant/30 text-center py-2">No stories added yet</p>
-                ) : stories.map((s, idx) => (
-                  <button key={s.id} onClick={() => navigateStory(idx)}
-                    className={`w-full text-left p-2 rounded-lg text-xs transition-all ${
-                      s.id === session.current_story_id
-                        ? 'bg-primary/15 border border-primary/20 text-primary'
-                        : 'text-on-surface-variant/60 hover:bg-white/5'
-                    }`}>
-                    <span className="truncate block">{s.title}</span>
-                    {s.estimate && <span className="float-right font-mono font-bold text-secondary">{s.estimate}</span>}
-                  </button>
-                ))}
-              </div>
-            </div>
           </GlassCard>
         </div>
 
         {/* Voting deck */}
-        <GlassCard padding="none" className="relative overflow-hidden animate-fade-in" style={{ animationDelay: '120ms' } as React.CSSProperties}>
+        <GlassCard padding="none" className="relative overflow-hidden shrink-0 animate-fade-in" style={{ animationDelay: '120ms' } as React.CSSProperties}>
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-4">
+          <div className="p-3 lg:p-4">
+            <div className="flex items-center justify-between mb-3">
               <span className="text-label-caps text-on-surface-variant/40 text-[10px]">{session.scale.toUpperCase()} DECK</span>
               {myVote && (
                 <button onClick={() => setMyVote(null)} className="text-xs text-on-surface-variant/40 hover:text-primary transition-colors">
-                  Clear selection
+                  Clear
                 </button>
               )}
             </div>
-            <div className="flex flex-wrap justify-center gap-2 md:gap-3">
+            <div className="flex flex-wrap justify-center gap-2">
               {deck.map((val: string) => (
                 <VotingCard key={val} value={val} selected={myVote === val}
                   onClick={() => handleVote(val)} />
@@ -459,11 +546,47 @@ export default function PokerSessionPage() {
       </Modal>
 
       {/* Add Story Modal */}
-      <Modal open={addStoryOpen} onClose={() => setAddStoryOpen(false)} title="Add Story" size="sm">
+      <Modal open={addStoryOpen} onClose={() => { setAddStoryOpen(false); setAiPrompt(''); setAiError('') }} title="Add Story" size="sm">
         <div className="space-y-4">
+          {/* AI generator */}
+          <div className="glass-card rounded-xl border-white/8 p-3 space-y-2">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="material-symbols-outlined text-[15px] text-primary">auto_awesome</span>
+              <p className="text-xs font-semibold text-primary">Generate with AI</p>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="e.g. user login with Google"
+                value={aiPrompt}
+                onChange={e => setAiPrompt(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAiGenerate()}
+                className="glass-input flex-1 rounded-lg px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/30"
+              />
+              <button
+                onClick={handleAiGenerate}
+                disabled={!aiPrompt.trim() || aiLoading}
+                className="px-3 py-2 rounded-lg bg-primary/15 border border-primary/20 text-primary text-xs font-bold hover:bg-primary/25 transition-all disabled:opacity-40 shrink-0 flex items-center gap-1"
+              >
+                {aiLoading
+                  ? <span className="w-3.5 h-3.5 border border-primary/40 border-t-primary rounded-full animate-spin" />
+                  : <span className="material-symbols-outlined text-[14px]">send</span>
+                }
+              </button>
+            </div>
+            {aiError && <p className="text-[11px] text-error">{aiError}</p>}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="h-px flex-1 bg-white/5" />
+            <span className="text-[10px] text-on-surface-variant/30">or write manually</span>
+            <div className="h-px flex-1 bg-white/5" />
+          </div>
+
           <Input label="Story Title" placeholder="As a user, I want to…"
             value={newStoryTitle} onChange={e => setNewStoryTitle(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleAddStory()} />
+
           <Button variant="primary" className="w-full" icon="add"
             disabled={!newStoryTitle.trim()} onClick={handleAddStory}>
             Add Story

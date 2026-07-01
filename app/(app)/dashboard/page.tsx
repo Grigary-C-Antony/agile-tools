@@ -6,6 +6,7 @@ import { GlassCard } from '@/components/ui/GlassCard'
 import { Badge } from '@/components/ui/Badge'
 import { TOOL_CARDS, TOOL_CATEGORIES } from '@/lib/mock-data'
 import { getToolCategoryColor } from '@/lib/utils'
+import { useSession } from '@/hooks/useSession'
 
 interface DashboardData {
   stats: {
@@ -30,6 +31,8 @@ interface DashboardData {
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
+  const { session } = useSession()
+  const isAdmin = session?.role === 'admin'
 
   useEffect(() => {
     fetch('/api/dashboard').then(r => r.json()).then(setData)
@@ -88,10 +91,10 @@ export default function DashboardPage() {
       <div>
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-xl font-bold text-on-surface">All Tools</h3>
-          <span className="text-label-caps text-on-surface-variant/40 text-[10px]">{TOOL_CARDS.length} TOOLS</span>
+          <span className="text-label-caps text-on-surface-variant/40 text-[10px]">{TOOL_CARDS.filter(t => isAdmin || t.category !== 'Sprint Tools').length} TOOLS</span>
         </div>
 
-        {TOOL_CATEGORIES.map(category => {
+        {TOOL_CATEGORIES.filter(category => isAdmin || category !== 'Sprint Tools').map(category => {
           const tools = TOOL_CARDS.filter(t => t.category === category)
           if (!tools.length) return null
           return (
@@ -106,12 +109,12 @@ export default function DashboardPage() {
                   <Link key={tool.id} href={tool.href}>
                     <GlassCard hover padding="md" className="h-full group animate-fade-in">
                       <div className="flex items-start gap-4">
-                        <div className={`w-11 h-11 rounded-xl border flex items-center justify-center shrink-0 ${tool.iconBg ?? 'bg-white/5 border-white/10'}`}>
-                          <span className={`material-symbols-outlined text-[22px] ${tool.iconColor ?? 'text-on-surface'}`}>{tool.icon}</span>
+                        <div className="w-11 h-11 rounded-xl border flex items-center justify-center shrink-0 bg-white/5 border-white/10">
+                          <span className="material-symbols-outlined text-[22px] text-on-surface">{tool.icon}</span>
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-bold text-sm text-on-surface group-hover:text-primary transition-colors">{tool.name}</h4>
+                            <h4 className="font-bold text-sm text-on-surface group-hover:text-primary transition-colors">{tool.title}</h4>
                             {tool.badge && <Badge variant={tool.badge === 'LIVE' ? 'tertiary' : 'primary'} dot={tool.badge === 'LIVE'}>{tool.badge}</Badge>}
                           </div>
                           <p className="text-xs text-on-surface-variant/60 leading-relaxed">{tool.description}</p>

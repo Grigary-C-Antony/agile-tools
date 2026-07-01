@@ -11,7 +11,7 @@ model Organization {
   id         String  @id
   name       String
   inviteCode String  @unique @map("invite_code")
-  createdAt  Int     @map("created_at")
+  createdAt  BigInt  @map("created_at")
 
   members         Member[]
   sessions        PokerSession[]
@@ -19,17 +19,21 @@ model Organization {
   riceFeatures    RiceFeature[]
   estimationItems EstimationItem[]
   velocityRecords VelocityRecord[]
+  ptoRecords      MemberPto[]
+  sprintHolidays  SprintHoliday[]
 
   @@map("organizations")
 }
 
 model Member {
-  id        String @id
-  orgId     String @map("org_id")
-  name      String
-  role      String @default("member")
-  status    String @default("pending")
-  createdAt Int    @map("created_at")
+  id           String @id
+  orgId        String @map("org_id")
+  name         String
+  email        String @unique
+  passwordHash String @map("password_hash")
+  role         String @default("member")
+  status       String @default("pending")
+  createdAt    BigInt @map("created_at")
 
   org   Organization @relation(fields: [orgId], references: [id])
   votes PokerVote[]
@@ -45,7 +49,7 @@ model PokerSession {
   status         String  @default("voting")
   currentStoryId String? @map("current_story_id")
   createdBy      String  @map("created_by")
-  createdAt      Int     @map("created_at")
+  createdAt      BigInt  @map("created_at")
 
   org     Organization @relation(fields: [orgId], references: [id])
   stories PokerStory[]
@@ -61,7 +65,7 @@ model PokerStory {
   description String?
   estimate    String?
   orderIndex  Int     @default(0) @map("order_index")
-  createdAt   Int     @map("created_at")
+  createdAt   BigInt  @map("created_at")
 
   session PokerSession @relation(fields: [sessionId], references: [id])
   votes   PokerVote[]
@@ -75,7 +79,7 @@ model PokerVote {
   storyId   String @map("story_id")
   memberId  String @map("member_id")
   vote      String
-  createdAt Int    @map("created_at")
+  createdAt BigInt @map("created_at")
 
   session PokerSession @relation(fields: [sessionId], references: [id])
   story   PokerStory   @relation(fields: [storyId], references: [id])
@@ -93,7 +97,7 @@ model WsjfFeature {
   timeCriticality Int    @default(1) @map("time_criticality")
   riskReduction   Int    @default(1) @map("risk_reduction")
   jobSize         Int    @default(1) @map("job_size")
-  createdAt       Int    @map("created_at")
+  createdAt       BigInt @map("created_at")
 
   org Organization @relation(fields: [orgId], references: [id])
 
@@ -108,7 +112,7 @@ model RiceFeature {
   impact     Int    @default(1)
   confidence Int    @default(80)
   effort     Int    @default(1)
-  createdAt  Int    @map("created_at")
+  createdAt  BigInt @map("created_at")
 
   org Organization @relation(fields: [orgId], references: [id])
 
@@ -122,7 +126,7 @@ model EstimationItem {
   description String?
   estimate    String?
   scale       String  @default("fibonacci")
-  createdAt   Int     @map("created_at")
+  createdAt   BigInt  @map("created_at")
 
   org Organization @relation(fields: [orgId], references: [id])
 
@@ -135,9 +139,35 @@ model VelocityRecord {
   sprintName String @map("sprint_name")
   planned    Int    @default(0)
   completed  Int    @default(0)
-  createdAt  Int    @map("created_at")
+  createdAt  BigInt @map("created_at")
 
   org Organization @relation(fields: [orgId], references: [id])
 
   @@map("velocity_records")
+}
+
+model SprintHoliday {
+  id        String  @id
+  orgId     String  @map("org_id")
+  name      String
+  date      String
+  enabled   Boolean @default(true)
+  createdAt BigInt  @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@map("sprint_holidays")
+}
+
+model MemberPto {
+  id        String @id
+  orgId     String @map("org_id")
+  memberId  String @map("member_id")
+  ptoDays   Float  @default(0) @map("pto_days")
+  updatedAt BigInt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, memberId])
+  @@map("member_pto")
 }

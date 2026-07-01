@@ -1,8 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import { useSession } from '@/hooks/useSession'
 
 interface NavItem {
   label: string
@@ -11,6 +12,7 @@ interface NavItem {
   iconFill?: boolean
   badge?: string
   matchPrefix?: boolean
+  adminOnly?: boolean
 }
 
 interface NavSection {
@@ -41,10 +43,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Sprint Tools',
     items: [
-      { label: 'Capacity Planner', href: '/sprint-tools?tab=capacity', icon: 'event_repeat', matchPrefix: false },
-      { label: 'Sprint Day Calc.', href: '/sprint-tools?tab=days', icon: 'calendar_today', matchPrefix: false },
-      { label: 'Velocity Tracker', href: '/sprint-tools?tab=velocity', icon: 'speed', matchPrefix: false, badge: 'New' },
-      { label: 'Leave Tracker', href: '/sprint-tools?tab=leave', icon: 'beach_access', matchPrefix: false },
+      { label: 'Capacity Planner', href: '/sprint-tools?tab=capacity', icon: 'event_repeat', matchPrefix: false, adminOnly: true },
+      { label: 'Sprint Day Calc.', href: '/sprint-tools?tab=days', icon: 'calendar_today', matchPrefix: false, adminOnly: true },
+      { label: 'Velocity Tracker', href: '/sprint-tools?tab=velocity', icon: 'speed', matchPrefix: false, badge: 'New', adminOnly: true },
+      { label: 'Leave Tracker', href: '/sprint-tools?tab=leave', icon: 'beach_access', matchPrefix: false, adminOnly: true },
     ]
   },
   {
@@ -90,11 +92,28 @@ function NavLink({ item, isActive }: { item: NavItem; isActive: boolean }) {
 
 export function Sidebar() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const { session } = useSession()
+  const isAdmin = session?.role === 'admin'
 
   function isActive(item: NavItem): boolean {
-    const href = item.href.split('?')[0]
-    if (item.matchPrefix) return pathname.startsWith(href)
-    return pathname === href || pathname.startsWith(href)
+    const [hrefPath, hrefQuery] = item.href.split('?')
+    if (item.matchPrefix) return pathname.startsWith(hrefPath)
+    if (pathname !== hrefPath) return false
+    // If the nav item has no query params, match on path alone
+    if (!hrefQuery) return true
+    // If it does, every query param in the href must match the current URL
+    const expected = new URLSearchParams(hrefQuery)
+    for (const [key, val] of expected) {
+      if (searchParams.get(key) !== val) return false
+    }
+    return true
+  }
+
+  async function handleSignOut() {
+    await fetch('/api/auth/session', { method: 'DELETE' })
+    router.push('/')
   }
 
   return (
@@ -108,36 +127,33 @@ export function Sidebar() {
           <h1 className="font-display text-[17px] font-bold text-on-surface tracking-tight leading-tight">
             Agile Toolkit
           </h1>
-          <p className="text-label-caps text-[9px] text-on-surface-variant/50 tracking-[0.15em]">
-            ENTERPRISE SUITE
-          </p>
         </div>
       </div>
 
       {/* ── Navigation ── */}
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
-        {NAV_SECTIONS.map((section, i) => (
-          <div key={i}>
-            {section.title && (
-              <p className="text-label-caps text-[9px] text-on-surface-variant/35 px-3 mb-1.5 tracking-[0.15em]">
-                {section.title}
-              </p>
-            )}
-            <div className="space-y-0.5">
-              {section.items.map(item => (
-                <NavLink key={item.href} item={item} isActive={isActive(item)} />
-              ))}
+        {NAV_SECTIONS.map((section, i) => {
+          const visibleItems = section.items.filter(item => !item.adminOnly || isAdmin)
+          if (visibleItems.length === 0) return null
+          return (
+            <div key={i}>
+              {section.title && (
+                <p className="text-label-caps text-[9px] text-on-surface-variant/35 px-3 mb-1.5 tracking-[0.15em]">
+                  {section.title}
+                </p>
+              )}
+              <div className="space-y-0.5">
+                {visibleItems.map(item => (
+                  <NavLink key={item.href} item={item} isActive={isActive(item)} />
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </nav>
 
       {/* ── Footer ── */}
       <div className="px-3 pb-4 space-y-2 border-t border-white/5 pt-3">
-        <button className="w-full py-2.5 rounded-xl gradient-brand text-white text-sm font-semibold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity neon-glow-purple shadow-lg">
-          <span className="material-symbols-outlined text-[18px]">add</span>
-          New Sprint
-        </button>
         <div className="flex gap-1">
           <Link
             href="/settings"
@@ -146,13 +162,13 @@ export function Sidebar() {
             <span className="material-symbols-outlined text-[16px]">help</span>
             Help
           </Link>
-          <Link
-            href="/"
+          <button
+            onClick={handleSignOut}
             className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-error/50 hover:text-error/80 hover:bg-error/5 transition-all text-xs"
           >
             <span className="material-symbols-outlined text-[16px]">logout</span>
             Sign Out
-          </Link>
+          </button>
         </div>
       </div>
     </aside>

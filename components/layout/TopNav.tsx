@@ -2,11 +2,7 @@
 
 import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { cn } from '@/lib/utils'
-import { MOCK_USERS } from '@/lib/mock-data'
-
-const currentUser = MOCK_USERS[0]
 
 interface TopNavProps {
   title?: string
@@ -54,40 +50,11 @@ export function TopNav({ title, actions }: TopNavProps) {
       <div className="flex items-center gap-3 shrink-0">
         {actions}
 
-        {/* Create New */}
-        <Link
-          href="/planning-poker"
-          className="hidden sm:flex items-center gap-2 gradient-brand text-white px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity neon-glow-purple shadow-md"
-        >
-          <span className="material-symbols-outlined text-[17px]">add</span>
-          Create New
-        </Link>
-
         {/* Notification bell */}
         <button className="relative w-9 h-9 flex items-center justify-center rounded-xl bg-white/5 border border-white/8 text-on-surface-variant hover:text-primary hover:bg-white/10 hover:border-white/15 transition-all">
           <span className="material-symbols-outlined text-[20px]">notifications</span>
           <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-secondary border border-background" />
         </button>
-
-        {/* Avatar */}
-        <div className="relative group">
-          <div className="w-9 h-9 rounded-xl overflow-hidden border border-white/10 bg-gradient-to-br from-white/10 to-transparent p-0.5 cursor-pointer">
-            {currentUser.avatar ? (
-              <Image
-                src={currentUser.avatar}
-                alt={currentUser.name}
-                width={36}
-                height={36}
-                className="w-full h-full object-cover rounded-lg"
-              />
-            ) : (
-              <div className="w-full h-full rounded-lg gradient-brand flex items-center justify-center text-white text-xs font-bold">
-                {currentUser.initials}
-              </div>
-            )}
-          </div>
-          <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-background" />
-        </div>
       </div>
     </header>
   )

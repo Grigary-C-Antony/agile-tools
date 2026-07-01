@@ -136,7 +136,7 @@ function AddFeatureModal({ open, onClose, type, onAdd }: {
 
 function PrioritizationContent() {
   const searchParams = useSearchParams()
-  const [activeTab, setActiveTab] = useState<'wsjf' | 'rice'>((searchParams.get('tab') as 'wsjf' | 'rice') ?? 'wsjf')
+  const activeTab = (searchParams.get('tab') as 'wsjf' | 'rice') ?? 'wsjf'
   const [wsjfItems, setWsjfItems] = useState<WSJFItem[]>([])
   const [riceItems, setRiceItems] = useState<RICEItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -225,26 +225,13 @@ function PrioritizationContent() {
   return (
     <div className="p-6 lg:p-8 space-y-6 max-w-[1600px]">
       {/* ── Header ── */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 animate-fade-in">
-        <div>
-          <h2 className="text-display-md text-on-surface tracking-tight">Prioritization</h2>
-          <p className="text-on-surface-variant mt-1 max-w-xl">
-            Strategic ranking via WSJF and RICE frameworks. Optimize your product roadmap with data-driven value assessments.
-          </p>
-        </div>
-
-        {/* Tab switcher */}
-        <div className="glass-card p-1.5 rounded-2xl flex relative min-w-[280px] border-white/8">
-          <div className={`absolute top-1.5 bottom-1.5 w-[calc(50%-3px)] bg-white/10 border border-white/10 rounded-xl transition-transform duration-500 z-0 ${
-            activeTab === 'rice' ? 'translate-x-[calc(100%+6px)]' : 'translate-x-0'
-          }`} />
-          <button onClick={() => setActiveTab('wsjf')} className={`relative z-10 flex-1 py-2.5 rounded-xl text-label-caps text-[12px] tracking-widest transition-all ${
-            activeTab === 'wsjf' ? 'text-on-surface font-bold' : 'text-on-surface-variant hover:text-on-surface'
-          }`}>WSJF</button>
-          <button onClick={() => setActiveTab('rice')} className={`relative z-10 flex-1 py-2.5 rounded-xl text-label-caps text-[12px] tracking-widest transition-all ${
-            activeTab === 'rice' ? 'text-on-surface font-bold' : 'text-on-surface-variant hover:text-on-surface'
-          }`}>RICE</button>
-        </div>
+      <div className="animate-fade-in">
+        <h2 className="text-display-md text-on-surface tracking-tight">
+          {activeTab === 'wsjf' ? 'WSJF Calculator' : 'RICE Scoring'}
+        </h2>
+        <p className="text-on-surface-variant mt-1 max-w-xl">
+          Strategic ranking via WSJF and RICE frameworks. Optimize your product roadmap with data-driven value assessments.
+        </p>
       </div>
 
       {/* ── WSJF View ── */}

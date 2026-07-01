@@ -1,15 +1,45 @@
 'use client'
 
-import { useState, useEffect, useMemo, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useState, useEffect, useMemo, useCallback, Suspense } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { useSession } from '@/hooks/useSession'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
-import { MOCK_SPRINT_CONFIG } from '@/lib/mock-data'
 import { calcSprintCapacity, calcVelocityStats, formatDate } from '@/lib/utils'
 import type { SprintConfig, SprintMember, Holiday } from '@/lib/types'
+
+const MEMBER_COLORS = ['#cfbdff', '#ffb782', '#cdcd00', '#4ade80', '#60a5fa', '#f472b6', '#34d399']
+
+function toInitials(name: string) {
+  return name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2)
+}
+
+interface ApiMember { id: string; name: string; role: string }
+
+function apiMembersToSprintMembers(members: ApiMember[]): SprintMember[] {
+  return members.map((m, i) => ({
+    id: m.id,
+    name: m.name,
+    initials: toInitials(m.name),
+    color: MEMBER_COLORS[i % MEMBER_COLORS.length],
+    ptoDays: 0,
+    focusFactor: 0.8,
+  }))
+}
+
+const DEFAULT_SPRINT_CONFIG: Omit<SprintConfig, 'members'> = {
+  startDate: new Date().toISOString().slice(0, 10),
+  endDate: new Date(Date.now() + 13 * 86400000).toISOString().slice(0, 10),
+  holidays: [],
+  rituals: [
+    { id: 'r1', name: 'Sprint Planning', description: 'Full day allocation • Day 1', duration: 1, enabled: true },
+    { id: 'r2', name: 'Sprint Retrospective', description: 'Full day allocation • Last Day', duration: 1, enabled: true },
+    { id: 'r3', name: 'Backlog Refinement', description: '0.5 day allocation • Mid-sprint', duration: 0.5, enabled: false },
+  ],
+}
 
 interface VelocityRecord {
   id: string; sprint_name: string; planned: number; completed: number; created_at: number
@@ -18,9 +48,37 @@ interface VelocityRecord {
 type Tab = 'capacity' | 'days' | 'velocity' | 'leave'
 
 // ── Capacity Tab ──
-function CapacityTab() {
-  const [config, setConfig] = useState<SprintConfig>(MOCK_SPRINT_CONFIG)
-  const result = useMemo(() => calcSprintCapacity(config), [config])
+function CapacityTab({ initialMembers, ptoDays, onPtoChange }: {
+  initialMembers: SprintMember[]
+  ptoDays: Record<string, number>
+  onPtoChange: (memberId: string, days: number) => void
+}) {
+  const [config, setConfig] = useState<SprintConfig>({ ...DEFAULT_SPRINT_CONFIG, members: initialMembers })
+
+  useEffect(() => {
+    if (initialMembers.length > 0) {
+      setConfig(prev => ({ ...prev, members: initialMembers }))
+    }
+  }, [initialMembers])
+
+  useEffect(() => {
+    fetch('/api/sprint/holidays')
+      .then(r => r.json())
+      .then(d => {
+        const holidays = (d.holidays ?? []).map((h: { id: string; name: string; date: string; enabled: boolean }) => ({
+          id: h.id, name: h.name, date: h.date, enabled: h.enabled,
+        }))
+        setConfig(prev => ({ ...prev, holidays }))
+      })
+      .catch(() => {})
+  }, [])
+
+  const effectiveConfig = useMemo(() => ({
+    ...config,
+    members: config.members.map(m => ({ ...m, ptoDays: ptoDays[m.id] ?? 0 })),
+  }), [config, ptoDays])
+
+  const result = useMemo(() => calcSprintCapacity(effectiveConfig), [effectiveConfig])
 
   const toggleRitual = (id: string) => {
     setConfig(prev => ({
@@ -29,18 +87,45 @@ function CapacityTab() {
     }))
   }
 
+  const [showAddHoliday, setShowAddHoliday] = useState(false)
+  const [newHolidayName, setNewHolidayName] = useState('')
+  const [newHolidayDate, setNewHolidayDate] = useState('')
+
   const toggleHoliday = (id: string) => {
+    const h = config.holidays.find(h => h.id === id)
+    if (!h) return
+    const enabled = !h.enabled
     setConfig(prev => ({
       ...prev,
-      holidays: prev.holidays.map(h => h.id === id ? { ...h, enabled: !h.enabled } : h)
+      holidays: prev.holidays.map(h => h.id === id ? { ...h, enabled } : h),
     }))
+    fetch(`/api/sprint/holidays/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }).catch(() => {})
   }
 
-  const updateMemberPTO = (memberId: string, days: number) => {
+  const addHoliday = async () => {
+    if (!newHolidayName.trim() || !newHolidayDate) return
+    const res = await fetch('/api/sprint/holidays', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newHolidayName.trim(), date: newHolidayDate }),
+    })
+    const { holiday } = await res.json()
     setConfig(prev => ({
       ...prev,
-      members: prev.members.map(m => m.id === memberId ? { ...m, ptoDays: days } : m)
+      holidays: [...prev.holidays, { id: holiday.id, name: holiday.name, date: holiday.date, enabled: true }],
     }))
+    setNewHolidayName('')
+    setNewHolidayDate('')
+    setShowAddHoliday(false)
+  }
+
+  const removeHoliday = (id: string) => {
+    setConfig(prev => ({ ...prev, holidays: prev.holidays.filter(h => h.id !== id) }))
+    fetch(`/api/sprint/holidays/${id}`, { method: 'DELETE' }).catch(() => {})
   }
 
   return (
@@ -100,12 +185,48 @@ function CapacityTab() {
                     />
                     <span className="text-sm text-on-surface-variant group-hover:text-on-surface transition-colors">{h.name}</span>
                     <span className="ml-auto text-xs text-on-surface-variant/40">{formatDate(h.date)}</span>
+                    <button
+                      type="button"
+                      onClick={e => { e.preventDefault(); removeHoliday(h.id) }}
+                      className="text-error/30 hover:text-error transition-colors ml-1"
+                    >
+                      <span className="material-symbols-outlined text-[15px]">close</span>
+                    </button>
                   </label>
                 ))}
-                <button className="flex items-center gap-2 text-xs text-primary hover:underline font-medium mt-1">
-                  <span className="material-symbols-outlined text-[15px]">add_circle</span>
-                  Add Custom Holiday
-                </button>
+
+                {showAddHoliday ? (
+                  <div className="flex items-center gap-2 p-2 rounded-xl bg-white/5 border border-white/5">
+                    <input
+                      type="text"
+                      placeholder="Holiday name"
+                      value={newHolidayName}
+                      onChange={e => setNewHolidayName(e.target.value)}
+                      className="glass-input flex-1 rounded-lg px-3 py-1.5 text-sm text-on-surface"
+                    />
+                    <input
+                      type="date"
+                      value={newHolidayDate}
+                      onChange={e => setNewHolidayDate(e.target.value)}
+                      className="glass-input rounded-lg px-2 py-1.5 text-sm text-on-surface"
+                    />
+                    <button type="button" onClick={addHoliday} className="text-primary hover:text-primary/80 transition-colors">
+                      <span className="material-symbols-outlined text-[18px]">check</span>
+                    </button>
+                    <button type="button" onClick={() => setShowAddHoliday(false)} className="text-on-surface-variant/40 hover:text-on-surface-variant transition-colors">
+                      <span className="material-symbols-outlined text-[18px]">close</span>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddHoliday(true)}
+                    className="flex items-center gap-2 text-xs text-primary hover:underline font-medium mt-1"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">add_circle</span>
+                    Add Custom Holiday
+                  </button>
+                )}
               </div>
             </div>
 
@@ -182,8 +303,8 @@ function CapacityTab() {
                         type="number"
                         step={0.5}
                         min={0}
-                        value={config.members.find(m => m.id === mc.memberId)?.ptoDays ?? 0}
-                        onChange={e => updateMemberPTO(mc.memberId, parseFloat(e.target.value) || 0)}
+                        value={ptoDays[mc.memberId] ?? 0}
+                        onChange={e => onPtoChange(mc.memberId, parseFloat(e.target.value) || 0)}
                         className="glass-input w-16 text-center text-sm rounded-lg py-1"
                       />
                     </td>
@@ -548,9 +669,21 @@ function SprintDaysTab() {
 }
 
 // ── Leave Tracker Tab ──
-function LeaveTrackerTab() {
-  const [members, setMembers] = useState<SprintMember[]>(MOCK_SPRINT_CONFIG.members)
+function LeaveTrackerTab({ initialMembers, ptoDays, onPtoChange }: {
+  initialMembers: SprintMember[]
+  ptoDays: Record<string, number>
+  onPtoChange: (memberId: string, days: number) => void
+}) {
+  const [members, setMembers] = useState<SprintMember[]>(initialMembers)
   const [newName, setNewName] = useState('')
+
+  useEffect(() => {
+    if (initialMembers.length > 0) {
+      setMembers(initialMembers)
+    }
+  }, [initialMembers])
+
+  const totalPto = members.reduce((s, m) => s + (ptoDays[m.id] ?? 0), 0)
 
   return (
     <div className="max-w-2xl space-y-5">
@@ -577,8 +710,8 @@ function LeaveTrackerTab() {
                   type="number"
                   step={0.5}
                   min={0}
-                  value={m.ptoDays}
-                  onChange={e => setMembers(prev => prev.map(mem => mem.id === m.id ? { ...mem, ptoDays: parseFloat(e.target.value) || 0 } : mem))}
+                  value={ptoDays[m.id] ?? 0}
+                  onChange={e => onPtoChange(m.id, parseFloat(e.target.value) || 0)}
                   className="glass-input w-16 text-center text-sm rounded-lg py-1.5"
                 />
               </div>
@@ -621,7 +754,7 @@ function LeaveTrackerTab() {
         <div className="flex items-center justify-between">
           <span className="text-on-surface-variant text-sm">Total PTO days this sprint</span>
           <span className="text-2xl font-bold text-error">
-            {members.reduce((s, m) => s + m.ptoDays, 0).toFixed(1)} days
+            {totalPto.toFixed(1)} days
           </span>
         </div>
       </GlassCard>
@@ -632,50 +765,66 @@ function LeaveTrackerTab() {
 // ── Main Page ──
 function SprintToolsContent() {
   const searchParams = useSearchParams()
-  const [activeTab, setActiveTab] = useState<Tab>(
-    (searchParams.get('tab') as Tab) ?? 'capacity'
-  )
+  const router = useRouter()
+  const { session, loading: sessionLoading } = useSession()
+  const activeTab = (searchParams.get('tab') as Tab) ?? 'capacity'
+  const [members, setMembers] = useState<SprintMember[]>([])
+  const [ptoDays, setPtoDays] = useState<Record<string, number>>({})
 
-  const TABS: { id: Tab; label: string; icon: string }[] = [
-    { id: 'capacity', label: 'Capacity Planner', icon: 'event_repeat' },
-    { id: 'days', label: 'Sprint Days', icon: 'calendar_today' },
-    { id: 'velocity', label: 'Velocity', icon: 'speed' },
-    { id: 'leave', label: 'Leave Tracker', icon: 'beach_access' },
-  ]
+  useEffect(() => {
+    if (!sessionLoading && session?.role !== 'admin') {
+      router.replace('/dashboard')
+    }
+  }, [sessionLoading, session, router])
+
+  useEffect(() => {
+    fetch('/api/members')
+      .then(r => r.json())
+      .then(d => setMembers(apiMembersToSprintMembers(d.active ?? [])))
+      .catch(() => {})
+    fetch('/api/sprint/pto')
+      .then(r => r.json())
+      .then(d => {
+        const map: Record<string, number> = {}
+        for (const r of d.pto ?? []) map[r.member_id] = r.pto_days
+        setPtoDays(map)
+      })
+      .catch(() => {})
+  }, [])
+
+  const handlePtoChange = useCallback((memberId: string, days: number) => {
+    setPtoDays(prev => ({ ...prev, [memberId]: days }))
+    fetch('/api/sprint/pto', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memberId, ptoDays: days }),
+    }).catch(() => {})
+  }, [])
+
+  if (sessionLoading || session?.role !== 'admin') return null
+
+  const TAB_LABELS: Record<Tab, string> = {
+    capacity: 'Capacity Planner',
+    days: 'Sprint Days',
+    velocity: 'Velocity Tracker',
+    leave: 'Leave Tracker',
+  }
 
   return (
     <div className="p-6 lg:p-8 space-y-6 max-w-[1600px]">
       {/* ── Header ── */}
       <div className="animate-fade-in">
-        <h2 className="text-display-md text-on-surface tracking-tight">Sprint Tools</h2>
+        <h2 className="text-display-md text-on-surface tracking-tight">{TAB_LABELS[activeTab]}</h2>
         <p className="text-on-surface-variant mt-1">
           Calculate capacity, track velocity, and plan sprints with precision.
         </p>
       </div>
 
-      {/* ── Tab Bar ── */}
-      <div className="flex gap-1 glass-card p-1 rounded-2xl border-white/8 w-fit animate-fade-in overflow-x-auto">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${
-              activeTab === tab.id
-                ? 'bg-white/10 text-on-surface border border-white/10'
-                : 'text-on-surface-variant/60 hover:text-on-surface hover:bg-white/5'
-            }`}
-          >
-            <span className={`material-symbols-outlined text-[17px] ${activeTab === tab.id ? 'text-primary' : ''}`}>{tab.icon}</span>
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
       {/* ── Tab Content ── */}
-      {activeTab === 'capacity' && <CapacityTab />}
-      {activeTab === 'days' && <SprintDaysTab />}
-      {activeTab === 'velocity' && <VelocityTab />}
-      {activeTab === 'leave' && <LeaveTrackerTab />}
+      <div className={activeTab !== 'capacity' ? 'hidden' : ''}><CapacityTab initialMembers={members} ptoDays={ptoDays} onPtoChange={handlePtoChange} /></div>
+      <div className={activeTab !== 'days' ? 'hidden' : ''}><SprintDaysTab /></div>
+      <div className={activeTab !== 'velocity' ? 'hidden' : ''}><VelocityTab /></div>
+      <div className={activeTab !== 'leave' ? 'hidden' : ''}><LeaveTrackerTab initialMembers={members} ptoDays={ptoDays} onPtoChange={handlePtoChange} /></div>
     </div>
   )
 }

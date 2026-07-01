@@ -20,6 +20,7 @@ export async function GET() {
       orgId: session.orgId,
       memberId: session.memberId,
       memberName: member.name,
+      email: member.email,
       role: member.role,
       status: member.status,
       orgName: org?.name ?? '',

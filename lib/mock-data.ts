@@ -1,6 +1,4 @@
 import type {
-  Organization,
-  User,
   PlanningPokerSession,
   WSJFItem,
   RICEItem,
@@ -9,111 +7,6 @@ import type {
   EstimationItem,
   ToolCard,
 } from './types'
-
-// ============================================================
-// MOCK USERS
-// ============================================================
-
-export const MOCK_USERS: User[] = [
-  {
-    id: 'u1',
-    name: 'Leyton Graves',
-    role: 'Product Owner',
-    title: 'Product Owner',
-    avatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBoImLUCCLeiCH1IXHN93cmV2dHgJdSVk-SJiJKy1xUbz2hJrDOpISrSMZaRfXcRK97l8U8Z6ABN27Sbgcpz_LDlcKESJW7F5LI59V2pKydyHM2F5QgrEtZvwaHYsN1A0cfiE4QopX-SkWzsEaeTgiuO_oRI_PwGiA-cX1lf3v3O1duUsX-cGm4Bga70zQMNmNuWcQORivYB85FSfdGGobTm3GhJBACFZ4j7_QnJEZ5K9Uq36gccGpPLbdNBPE455qiFwliIOW-wDw',
-    initials: 'LG',
-    status: 'online',
-    orgRole: 'admin',
-    memberStatus: 'approved',
-    joinedAt: '2024-01-15T10:00:00Z',
-    email: 'leyton@acme.com',
-  },
-  {
-    id: 'u2',
-    name: 'Elias Holly',
-    role: 'Frontend Lead',
-    title: 'Frontend Lead',
-    avatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuC1T7hTwp72VTsCVJBNn0GKdCzjURotuEX7mXU0knsGVAPfu5RI7f7sW2q6O7QWDLFmcV8w8isbjJERo5BRIwRxvUhi7zM050NtPwU8Lhbgdt1dPbLMXjLYCq8oEXur38wcgqkY9cik13A2oE6-M-BtppzZeIL_kHNF2YvYRQDNJ9-__39Ux0VRxm3QuvCpi650wIZcneE445g2A9Uu3H59CTjMedZxvc0cePAS5zdtKpPG60uevciJWIUav-Y_9v_LWqwXldI8LZo',
-    initials: 'EH',
-    status: 'online',
-    orgRole: 'member',
-    memberStatus: 'approved',
-    joinedAt: '2024-01-20T09:30:00Z',
-    email: 'elias@acme.com',
-  },
-  {
-    id: 'u3',
-    name: 'Pierre Smith',
-    role: 'Backend Eng.',
-    title: 'Backend Engineer',
-    avatar: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCu_9WXMJtwupPJnTmZsjeGfQVqDjdSA6rUEJo5fpuv8ItAWH86P_1Y4qUo8CkEgzm6uSnEE0uiSbO1yA3X41sJ36BIx4wNB4QXRNcCND4Qa3R84zgSIx3Xz_VEZuhM6qgfcFF1q4knSRQSQzZ6-vwDpM25gJPlwWc7BhnhJ5n8d_WxLCUh1NY9M07tDkFPbq8J1lcfvQ0ySe2Hn41tuWBObZR_GgTg4ogX10kNrf-YmJGguIy7g2MEsNBy2QNIX-y57_J2miFvjZY',
-    initials: 'PS',
-    status: 'online',
-    orgRole: 'member',
-    memberStatus: 'approved',
-    joinedAt: '2024-02-01T14:00:00Z',
-    email: 'pierre@acme.com',
-  },
-  {
-    id: 'u4',
-    name: 'Blake Kraft',
-    role: 'Developer',
-    title: 'Full-Stack Developer',
-    initials: 'BK',
-    status: 'away',
-    orgRole: 'member',
-    memberStatus: 'approved',
-    joinedAt: '2024-02-10T11:00:00Z',
-    email: 'blake@acme.com',
-  },
-  {
-    id: 'u5',
-    name: 'Sarah Chen',
-    role: 'UX Designer',
-    title: 'Senior UX Designer',
-    initials: 'SC',
-    status: 'offline',
-    orgRole: 'member',
-    memberStatus: 'pending',
-    joinedAt: '2024-06-01T09:00:00Z',
-    email: 'sarah@acme.com',
-  },
-  {
-    id: 'u6',
-    name: 'Marcus Ali',
-    role: 'DevOps Engineer',
-    title: 'DevOps Engineer',
-    initials: 'MA',
-    status: 'offline',
-    orgRole: 'member',
-    memberStatus: 'pending',
-    joinedAt: '2024-06-15T16:00:00Z',
-    email: 'marcus@acme.com',
-  },
-]
-
-// ============================================================
-// MOCK ORGANIZATION
-// ============================================================
-
-export const MOCK_ORG: Organization = {
-  id: 'org1',
-  name: 'Acme Corp Engineering',
-  slug: 'acme-corp',
-  inviteCode: 'ACME-XYZ',
-  inviteLink: 'https://agile-toolkit.app/join/ACME-XYZ',
-  createdAt: '2024-01-01T00:00:00Z',
-  adminId: 'u1',
-  members: MOCK_USERS,
-  settings: {
-    allowSelfJoin: false,
-    requireApproval: true,
-    defaultEstimationScale: 'fibonacci',
-    timezone: 'America/New_York',
-    workdaysPerWeek: 5,
-    hoursPerDay: 8,
-  },
-}
 
 // ============================================================
 // MOCK PLANNING POKER SESSION

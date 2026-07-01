@@ -94,12 +94,10 @@ export default function MembersPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         {[
           { label: 'Total Members', value: active.length, icon: 'group', color: 'text-primary', bg: 'bg-primary/10 border-primary/20' },
           { label: 'Pending Approval', value: pending.length, icon: 'pending', color: 'text-secondary', bg: 'bg-secondary/10 border-secondary/20' },
-          { label: 'Admins', value: active.filter(m => m.role === 'admin').length, icon: 'admin_panel_settings', color: 'text-tertiary', bg: 'bg-tertiary/10 border-tertiary/20' },
-          { label: 'Online Now', value: active.length, icon: 'sensors', color: 'text-green-400', bg: 'bg-green-400/10 border-green-400/20' },
         ].map(s => (
           <GlassCard key={s.label} padding="md">
             <div className="flex items-center gap-3">
@@ -182,6 +180,7 @@ export default function MembersPage() {
               <thead>
                 <tr className="border-b border-white/5">
                   <th className="text-left text-label-caps text-on-surface-variant/50 text-[10px] p-4">Member</th>
+                  <th className="text-left text-label-caps text-on-surface-variant/50 text-[10px] p-4">Email</th>
                   <th className="text-left text-label-caps text-on-surface-variant/50 text-[10px] p-4">Role</th>
                   <th className="text-left text-label-caps text-on-surface-variant/50 text-[10px] p-4">Joined</th>
                   {isAdmin && <th className="p-4" />}
@@ -199,12 +198,13 @@ export default function MembersPage() {
                         </div>
                       </div>
                     </td>
+                    <td className="p-4 text-sm text-on-surface-variant/50">{m.email}</td>
                     <td className="p-4">
                       {isAdmin && m.id !== session?.memberId ? (
                         <select
                           value={m.role}
                           onChange={e => handleRoleChange(m.id, e.target.value)}
-                          className="glass-input rounded-lg px-3 py-1.5 text-xs font-semibold text-on-surface bg-transparent cursor-pointer"
+                          className="glass-input rounded-lg px-2 py-1 text-xs text-on-surface"
                         >
                           <option value="member">Member</option>
                           <option value="admin">Admin</option>
@@ -223,7 +223,7 @@ export default function MembersPage() {
                         {m.id !== session?.memberId && (
                           <button
                             onClick={() => handleRemove(m.id)}
-                            className="text-error/40 hover:text-error transition-colors"
+                            className="text-error/30 hover:text-error transition-colors"
                             title="Remove member"
                           >
                             <span className="material-symbols-outlined text-[18px]">person_remove</span>
