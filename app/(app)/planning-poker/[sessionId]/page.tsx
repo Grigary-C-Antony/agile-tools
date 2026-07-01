@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -12,32 +12,30 @@ import { useSession } from '@/hooks/useSession'
 import { calcModeVote, calcAverageVote } from '@/lib/utils'
 import { FIBONACCI_DECK, TSHIRT_DECK } from '@/lib/types'
 import { getPusherClient } from '@/lib/pusher-client'
-import type { PokerSession, PokerStory, PokerVote } from '@/lib/db'
-
-interface Participant { memberId: string; name: string; hasVoted: boolean }
+import type { PokerSession, PokerStory, PokerVote, Member } from '@/lib/db'
 
 function MemberInitials(name: string) {
   return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
 }
 
-function ParticipantCard({ p, revealed, votes }: { p: Participant; revealed: boolean; votes: PokerVote[] }) {
-  const vote = votes.find(v => v.member_id === p.memberId)
+function ParticipantCard({ m, hasVoted, revealed, votes }: { m: Member; hasVoted: boolean; revealed: boolean; votes: PokerVote[] }) {
+  const vote = votes.find(v => v.member_id === m.id)
   return (
-    <div className={['flex items-center justify-between p-4 rounded-2xl border transition-all',
-      p.hasVoted ? 'bg-surface-container/40 border-white/5 hover:border-primary/20' : 'bg-surface-container/20 border-white/5 opacity-50'
+    <div className={['flex items-center justify-between p-3 rounded-2xl border transition-all',
+      hasVoted ? 'bg-surface-container/40 border-white/5 hover:border-primary/20' : 'bg-surface-container/20 border-white/5 opacity-50'
     ].join(' ')}>
-      <div className="flex items-center gap-3">
-        <div className="w-11 h-11 rounded-full gradient-brand flex items-center justify-center text-sm font-bold text-white border-2 border-white/10">
-          {MemberInitials(p.name)}
+      <div className="flex items-center gap-2 min-w-0">
+        <div className="w-9 h-9 shrink-0 rounded-full gradient-brand flex items-center justify-center text-xs font-bold text-white border-2 border-white/10">
+          {MemberInitials(m.name)}
         </div>
-        <p className="text-sm font-bold text-on-surface">{p.name}</p>
+        <p className="text-xs font-semibold text-on-surface truncate max-w-[90px]">{m.name}</p>
       </div>
       <div>
         {revealed && vote ? (
           <div className="w-10 h-10 rounded-xl gradient-brand flex items-center justify-center font-bold text-white text-sm neon-glow-purple">
             {vote.vote}
           </div>
-        ) : p.hasVoted ? (
+        ) : hasVoted ? (
           <div className="w-7 h-7 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center">
             <span className="material-symbols-outlined text-primary text-[16px]">check</span>
           </div>
@@ -68,12 +66,11 @@ export default function PokerSessionPage() {
   const router = useRouter()
   const sessionId = params.sessionId as string
   const { session: userSession } = useSession()
-  const votedMemberIdsRef = useRef<string[]>([])
-
   const [session, setSession] = useState<PokerSession | null>(null)
   const [stories, setStories] = useState<PokerStory[]>([])
   const [votes, setVotes] = useState<PokerVote[]>([])
-  const [participants, setParticipants] = useState<Participant[]>([])
+  const [orgMembers, setOrgMembers] = useState<Member[]>([])
+  const [votedMemberIds, setVotedMemberIds] = useState<Set<string>>(new Set())
   const [myVote, setMyVote] = useState<string | null>(null)
   const [revealed, setRevealed] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -90,26 +87,19 @@ export default function PokerSessionPage() {
     : null
   const currentStoryIdx = currentStory ? stories.indexOf(currentStory) : -1
   const deck = session?.scale === 'tshirt' ? TSHIRT_DECK : FIBONACCI_DECK
-  const votedCount = participants.filter(p => p.hasVoted).length
-  const totalCount = participants.length
+  const votedCount = orgMembers.filter(m => votedMemberIds.has(m.id)).length
+  const totalCount = orgMembers.length
 
   const votesRecord: Record<string, string | number> = {}
   votes.forEach(v => { votesRecord[v.member_id] = v.vote })
   const modeVote = revealed ? calcModeVote(votesRecord) : null
   const avgVote = revealed ? calcAverageVote(votesRecord) : null
 
-  const sortedVotes = revealed
-    ? [...votes].sort((a, b) => {
-        const na = parseFloat(a.vote), nb = parseFloat(b.vote)
-        if (isNaN(na) && isNaN(nb)) return 0
-        if (isNaN(na)) return 1
-        if (isNaN(nb)) return -1
-        return nb - na
-      })
-    : votes
   const numericVals = votes.map(v => parseFloat(v.vote)).filter(n => !isNaN(n))
   const maxVal = numericVals.length ? Math.max(...numericVals) : null
   const minVal = numericVals.length && numericVals.length > 1 ? Math.min(...numericVals) : null
+  const highCount = maxVal !== null ? votes.filter(v => parseFloat(v.vote) === maxVal).length : 0
+  const lowCount  = minVal !== null ? votes.filter(v => parseFloat(v.vote) === minVal).length : 0
 
   // Fetch initial state
   useEffect(() => {
@@ -119,7 +109,8 @@ export default function PokerSessionPage() {
         setStories(d.stories ?? [])
         setVotes(d.votes ?? [])
         setRevealed(d.session.status === 'revealed')
-        votedMemberIdsRef.current = d.votedMemberIds ?? []
+        setOrgMembers(d.members ?? [])
+        setVotedMemberIds(new Set(d.votedMemberIds ?? []))
       }
       setLoading(false)
     })
@@ -133,31 +124,8 @@ export default function PokerSessionPage() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const channel = pusherClient.subscribe(`presence-poker-${sessionId}`) as any
 
-    channel.bind('pusher:subscription_succeeded', (members: any) => {
-      const initial: Participant[] = []
-      members.each((member: any) => {
-        initial.push({
-          memberId: member.id,
-          name: member.info.name,
-          hasVoted: votedMemberIdsRef.current.includes(member.id),
-        })
-      })
-      setParticipants(initial)
-    })
-
-    channel.bind('pusher:member_added', (member: any) => {
-      setParticipants(prev => {
-        if (prev.some(p => p.memberId === member.id)) return prev
-        return [...prev, { memberId: member.id, name: member.info.name, hasVoted: false }]
-      })
-    })
-
-    channel.bind('pusher:member_removed', (member: any) => {
-      setParticipants(prev => prev.filter(p => p.memberId !== member.id))
-    })
-
     channel.bind('poker:voted', ({ memberId }: { memberId: string }) => {
-      setParticipants(prev => prev.map(p => p.memberId === memberId ? { ...p, hasVoted: true } : p))
+      setVotedMemberIds(prev => new Set([...prev, memberId]))
     })
 
     channel.bind('poker:revealed', ({ votes: v }: { votes: PokerVote[] }) => {
@@ -171,7 +139,7 @@ export default function PokerSessionPage() {
       setRevealed(false)
       setMyVote(null)
       setSession(prev => prev ? { ...prev, status: 'voting' } : prev)
-      setParticipants(prev => prev.map(p => ({ ...p, hasVoted: false })))
+      setVotedMemberIds(new Set())
     })
 
     channel.bind('poker:story-accepted', ({ storyId, estimate, nextStory }: { storyId: string; estimate: string; nextStory: PokerStory | null }) => {
@@ -179,7 +147,7 @@ export default function PokerSessionPage() {
       setVotes([])
       setRevealed(false)
       setMyVote(null)
-      setParticipants(prev => prev.map(p => ({ ...p, hasVoted: false })))
+      setVotedMemberIds(new Set())
       setSession(prev => prev ? { ...prev, current_story_id: nextStory?.id ?? null, status: nextStory ? 'voting' : 'completed' } : prev)
     })
 
@@ -213,7 +181,7 @@ export default function PokerSessionPage() {
     setMyVote(newVote)
     if (newVote) {
       action('vote', { storyId: currentStory.id, vote: newVote })
-      setParticipants(prev => prev.map(p => p.memberId === userSession.memberId ? { ...p, hasVoted: true } : p))
+      setVotedMemberIds(prev => new Set([...prev, userSession.memberId]))
     }
   }
 
@@ -274,7 +242,7 @@ export default function PokerSessionPage() {
     setVotes([])
     setRevealed(false)
     setMyVote(null)
-    setParticipants(prev => prev.map(p => ({ ...p, hasVoted: false })))
+    setVotedMemberIds(new Set())
   }
 
   if (loading) return (
@@ -402,9 +370,24 @@ export default function PokerSessionPage() {
             {/* Card reveal area */}
             <div className="flex-1 flex items-center justify-center px-4 py-3 overflow-y-auto relative z-10">
               {revealed ? (
-                <div className="flex items-center gap-6 w-full justify-center flex-wrap">
-                  {/* Consensus */}
-                  <div className="relative shrink-0">
+                <div className="flex items-center justify-center gap-4 w-full flex-wrap">
+                  {/* HIGH card — only when distinct from LOW */}
+                  {maxVal !== null && maxVal !== minVal && (
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="relative w-20 h-28 rounded-xl bg-green-500/15 border border-green-500/30 flex flex-col items-center justify-center gap-1">
+                        <span className="text-3xl font-black text-green-400">{maxVal}</span>
+                        <span className="text-[9px] text-green-400/70 font-bold tracking-widest uppercase">High</span>
+                        {highCount > 1 && (
+                          <span className="absolute -top-2 -right-2 bg-green-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                            ×{highCount}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Consensus card — always shown */}
+                  <div className="relative shrink-0 flex flex-col items-center">
                     <div className="absolute -inset-4 bg-primary/15 rounded-full blur-2xl" />
                     <div className="relative w-28 h-36 glass-modal rounded-xl border border-primary/30 flex flex-col items-center justify-center gap-1 shadow-lg">
                       <span className="text-5xl font-black gradient-purple-text">{modeVote ?? '?'}</span>
@@ -417,33 +400,20 @@ export default function PokerSessionPage() {
                     )}
                   </div>
 
-                  <div className="h-16 w-px bg-white/5 hidden sm:block" />
-
-                  {/* Sorted votes — highest first */}
-                  <div className="flex gap-2 flex-wrap justify-center">
-                    {sortedVotes.map(v => {
-                      const p = participants.find(pp => pp.memberId === v.member_id)
-                      const numVal = parseFloat(v.vote)
-                      const isHigh = !isNaN(numVal) && numVal === maxVal
-                      const isLow = !isNaN(numVal) && numVal === minVal
-                      return (
-                        <div key={v.member_id} className="text-center">
-                          <div className={`w-10 h-14 rounded-lg flex items-center justify-center font-bold text-sm mb-1 border ${
-                            isHigh
-                              ? 'bg-green-500/20 border-green-500/40 text-green-400'
-                              : isLow
-                                ? 'bg-error/20 border-error/40 text-error'
-                                : 'gradient-brand text-white border-transparent'
-                          }`}>
-                            {v.vote}
-                          </div>
-                          <p className="text-[9px] text-on-surface-variant/50 font-bold">{MemberInitials(p?.name ?? v.member_id)}</p>
-                          {isHigh && <span className="text-[8px] text-green-400 font-bold block">HIGH</span>}
-                          {isLow && <span className="text-[8px] text-error font-bold block">LOW</span>}
-                        </div>
-                      )
-                    })}
-                  </div>
+                  {/* LOW card — only when distinct from HIGH */}
+                  {minVal !== null && maxVal !== minVal && (
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="relative w-20 h-28 rounded-xl bg-error/15 border border-error/30 flex flex-col items-center justify-center gap-1">
+                        <span className="text-3xl font-black text-error">{minVal}</span>
+                        <span className="text-[9px] text-error/70 font-bold tracking-widest uppercase">Low</span>
+                        {lowCount > 1 && (
+                          <span className="absolute -top-2 -right-2 bg-error text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                            ×{lowCount}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="relative">
@@ -500,13 +470,11 @@ export default function PokerSessionPage() {
               <Badge variant="primary">{votedCount}/{totalCount}</Badge>
             </div>
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {participants.length === 0 ? (
-                <p className="text-xs text-on-surface-variant/40 text-center py-4">Waiting for participants…</p>
-              ) : (
-                participants.map(p => (
-                  <ParticipantCard key={p.memberId} p={p} revealed={revealed} votes={votes} />
-                ))
-              )}
+              {orgMembers.length === 0 ? (
+                <p className="text-xs text-on-surface-variant/40 text-center py-4">No members yet…</p>
+              ) : orgMembers.map(m => (
+                <ParticipantCard key={m.id} m={m} hasVoted={votedMemberIds.has(m.id)} revealed={revealed} votes={votes} />
+              ))}
             </div>
           </GlassCard>
         </div>
