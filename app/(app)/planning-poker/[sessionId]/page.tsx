@@ -80,6 +80,7 @@ export default function PokerSessionPage() {
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState('')
   const [endConfirmOpen, setEndConfirmOpen] = useState(false)
+  const [storyDetailOpen, setStoryDetailOpen] = useState(false)
   const [loading, setLoading] = useState(true)
 
   const currentStory = session?.current_story_id
@@ -350,7 +351,16 @@ export default function PokerSessionPage() {
                     <p className="text-label-caps text-on-surface-variant/40 text-[10px] mb-1">
                       Story {currentStoryIdx + 1} of {stories.length}
                     </p>
-                    <h2 className="text-lg font-bold text-on-surface truncate">{currentStory.title}</h2>
+                    <div className="flex items-center justify-center gap-1.5 min-w-0">
+                      <h2 className="text-lg font-bold text-on-surface truncate">{currentStory.title}</h2>
+                      <button
+                        onClick={() => setStoryDetailOpen(true)}
+                        className="shrink-0 text-on-surface-variant/40 hover:text-primary transition-colors"
+                        title="View full story"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">open_in_full</span>
+                      </button>
+                    </div>
                     {currentStory.description && (
                       <p className="text-on-surface-variant text-xs mt-1 opacity-70 line-clamp-2">{currentStory.description}</p>
                     )}
@@ -566,6 +576,22 @@ export default function PokerSessionPage() {
             disabled={!newStoryTitle.trim()} onClick={handleAddStory}>
             Add Story
           </Button>
+        </div>
+      </Modal>
+
+      {/* Story Detail Modal */}
+      <Modal open={storyDetailOpen} onClose={() => setStoryDetailOpen(false)} title="Story Details" size="md">
+        <div className="space-y-4">
+          <div>
+            <p className="text-label-caps text-on-surface-variant/50 text-[10px] mb-1">Title</p>
+            <p className="text-on-surface font-semibold text-sm leading-relaxed">{currentStory?.title}</p>
+          </div>
+          {currentStory?.description && (
+            <div>
+              <p className="text-label-caps text-on-surface-variant/50 text-[10px] mb-1">Description</p>
+              <p className="text-on-surface-variant text-sm leading-relaxed whitespace-pre-wrap">{currentStory.description}</p>
+            </div>
+          )}
         </div>
       </Modal>
 
