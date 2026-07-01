@@ -149,7 +149,8 @@ export default function PokerSessionPage() {
       setRevealed(false)
       setMyVote(null)
       setVotedMemberIds(new Set())
-      setSession(prev => prev ? { ...prev, current_story_id: nextStory?.id ?? null, status: nextStory ? 'voting' : 'completed' } : prev)
+      // Keep current_story_id as the accepted story when it's the last one (so results are visible)
+      setSession(prev => prev ? { ...prev, current_story_id: nextStory?.id ?? storyId, status: nextStory ? 'voting' : 'completed' } : prev)
     })
 
     channel.bind('poker:story-added', ({ story }: { story: PokerStory }) => {
@@ -240,10 +241,13 @@ export default function PokerSessionPage() {
     const story = stories[idx]
     if (!story) return
     setSession(prev => prev ? { ...prev, current_story_id: story.id } : prev)
-    setVotes([])
-    setRevealed(false)
-    setMyVote(null)
-    setVotedMemberIds(new Set())
+    // Don't reset voting state when browsing accepted/completed stories
+    if (!story.estimate && session?.status !== 'completed') {
+      setVotes([])
+      setRevealed(false)
+      setMyVote(null)
+      setVotedMemberIds(new Set())
+    }
   }
 
   if (loading) return (
@@ -379,7 +383,47 @@ export default function PokerSessionPage() {
 
             {/* Card reveal area */}
             <div className="flex-1 flex items-center justify-center px-4 py-3 overflow-y-auto relative z-10">
-              {revealed ? (
+              {currentStory?.estimate ? (
+                /* Accepted story — show saved stats */
+                <div className="flex flex-col items-center gap-4 w-full">
+                  <div className="flex items-center justify-center gap-4 flex-wrap">
+                    {currentStory.high_vote && currentStory.high_vote !== currentStory.low_vote && (
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="w-20 h-28 rounded-xl bg-green-500/15 border border-green-500/30 flex flex-col items-center justify-center gap-1">
+                          <span className="text-3xl font-black text-green-400">{currentStory.high_vote}</span>
+                          <span className="text-[9px] text-green-400/70 font-bold tracking-widest uppercase">High</span>
+                        </div>
+                      </div>
+                    )}
+                    <div className="relative shrink-0 flex flex-col items-center">
+                      <div className="absolute -inset-4 bg-primary/15 rounded-full blur-2xl" />
+                      <div className="relative w-28 h-36 glass-modal rounded-xl border border-primary/30 flex flex-col items-center justify-center gap-1 shadow-lg">
+                        <span className="text-5xl font-black gradient-purple-text">{currentStory.consensus ?? currentStory.estimate}</span>
+                        <span className="text-[9px] text-on-surface-variant/50 font-bold tracking-widest uppercase">Consensus</span>
+                      </div>
+                      {currentStory.average && currentStory.consensus !== currentStory.average && (
+                        <p className="text-[10px] text-on-surface-variant/50 text-center mt-1.5">
+                          Avg <span className="text-secondary font-bold">{currentStory.average}</span>
+                        </p>
+                      )}
+                    </div>
+                    {currentStory.low_vote && currentStory.low_vote !== currentStory.high_vote && (
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="w-20 h-28 rounded-xl bg-error/15 border border-error/30 flex flex-col items-center justify-center gap-1">
+                          <span className="text-3xl font-black text-error">{currentStory.low_vote}</span>
+                          <span className="text-[9px] text-error/70 font-bold tracking-widest uppercase">Low</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {currentStory.vote_count != null && currentStory.vote_count > 0 && (
+                    <p className="text-[11px] text-on-surface-variant/30">
+                      <span className="font-bold">{currentStory.vote_count}</span> vote{currentStory.vote_count !== 1 ? 's' : ''} · accepted as{' '}
+                      <span className="text-secondary font-bold">{currentStory.estimate}</span>
+                    </p>
+                  )}
+                </div>
+              ) : revealed ? (
                 <div className="flex items-center justify-center gap-4 w-full flex-wrap">
                   {/* HIGH card — only when distinct from LOW */}
                   {maxVal !== null && maxVal !== minVal && (
@@ -447,7 +491,12 @@ export default function PokerSessionPage() {
 
             {/* Controls — session creator / admin only */}
             <div className="px-4 py-3 border-t border-white/5 flex justify-center gap-2 shrink-0 relative z-10">
-              {isAdmin ? (
+              {currentStory?.estimate || session.status === 'completed' ? (
+                <p className="text-xs text-on-surface-variant/40 py-1 flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[14px] text-secondary">check_circle</span>
+                  Story accepted · <span className="text-secondary font-bold">{currentStory?.estimate}</span>
+                </p>
+              ) : isAdmin ? (
                 <>
                   {!revealed ? (
                     <Button variant="primary" size="sm" onClick={handleReveal}
@@ -489,8 +538,8 @@ export default function PokerSessionPage() {
           </GlassCard>
         </div>
 
-        {/* Voting deck */}
-        <GlassCard padding="none" className="relative overflow-hidden shrink-0 animate-fade-in" style={{ animationDelay: '120ms' } as React.CSSProperties}>
+        {/* Voting deck — hidden when viewing an accepted story or completed session */}
+        {!currentStory?.estimate && session.status !== 'completed' && <GlassCard padding="none" className="relative overflow-hidden shrink-0 animate-fade-in" style={{ animationDelay: '120ms' } as React.CSSProperties}>
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
           <div className="p-3 lg:p-4">
             <div className="flex items-center justify-between mb-3">
@@ -508,7 +557,7 @@ export default function PokerSessionPage() {
               ))}
             </div>
           </div>
-        </GlassCard>
+        </GlassCard>}
       </div>
 
       {/* Invite Modal */}

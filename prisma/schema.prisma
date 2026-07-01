@@ -64,6 +64,11 @@ model PokerStory {
   title       String
   description String?
   estimate    String?
+  consensus   String?
+  average     String?
+  highVote    String? @map("high_vote")
+  lowVote     String? @map("low_vote")
+  voteCount   Int?    @map("vote_count")
   orderIndex  Int     @default(0) @map("order_index")
   createdAt   BigInt  @map("created_at")
 

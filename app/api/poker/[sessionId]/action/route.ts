@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { pusher } from '@/lib/pusher'
+import { calcModeVote, calcAverageVote } from '@/lib/utils'
 
 export async function POST(request: Request, { params }: { params: Promise<{ sessionId: string }> }) {
   const session = await getSession()
@@ -42,7 +43,26 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
 
     case 'accept-story': {
       const { storyId, estimate } = body
+      // Compute stats from current votes before saving
+      const currentVotes = await db.getVotes(sessionId, storyId)
+      const votesRecord: Record<string, string | number> = {}
+      currentVotes.forEach(v => { votesRecord[v.member_id] = v.vote })
+      const numericVals = currentVotes.map(v => parseFloat(v.vote)).filter(n => !isNaN(n))
+      const maxVal = numericVals.length ? Math.max(...numericVals) : null
+      const minVal = numericVals.length > 1 ? Math.min(...numericVals) : null
+      const modeVote = calcModeVote(votesRecord)
+      const avgVote = calcAverageVote(votesRecord)
+
       await db.setStoryEstimate(storyId, estimate)
+      await db.setStoryStats(storyId, {
+        consensus: modeVote !== null ? String(modeVote) : estimate,
+        average: avgVote !== null ? String(avgVote) : null,
+        highVote: maxVal !== null ? String(maxVal) : null,
+        lowVote: minVal !== null ? String(minVal) : null,
+        voteCount: currentVotes.length,
+      })
+      // Votes are kept in DB as history (only reset-round clears them)
+
       const stories = await db.getStories(sessionId)
       const currentIdx = stories.findIndex(s => s.id === storyId)
       const nextStory = currentIdx >= 0 && currentIdx < stories.length - 1 ? stories[currentIdx + 1] : null
@@ -51,7 +71,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
       } else {
         await db.updatePokerSessionStatus(sessionId, 'completed')
       }
-      await db.clearVotes(sessionId, storyId)
       await pusher.trigger(channel, 'poker:story-accepted', { storyId, estimate, nextStory })
       return NextResponse.json({ ok: true })
     }

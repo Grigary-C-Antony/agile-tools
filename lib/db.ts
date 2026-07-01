@@ -18,7 +18,7 @@ if (process.env.NODE_ENV !== 'production') g.prisma = prisma
 export interface Org { id: string; name: string; invite_code: string; created_at: number }
 export interface Member { id: string; org_id: string; name: string; email: string; role: 'admin' | 'member'; status: 'pending' | 'active' | 'rejected'; created_at: number }
 export interface PokerSession { id: string; org_id: string; name: string; scale: string; status: 'voting' | 'revealed' | 'completed'; current_story_id: string | null; created_by: string; created_at: number }
-export interface PokerStory { id: string; session_id: string; title: string; description: string | null; estimate: string | null; order_index: number; created_at: number }
+export interface PokerStory { id: string; session_id: string; title: string; description: string | null; estimate: string | null; consensus: string | null; average: string | null; high_vote: string | null; low_vote: string | null; vote_count: number | null; order_index: number; created_at: number }
 export interface PokerVote { id: string; session_id: string; story_id: string; member_id: string; vote: string; created_at: number }
 export interface WSJFFeature { id: string; org_id: string; name: string; business_value: number; time_criticality: number; risk_reduction: number; job_size: number; created_at: number }
 export interface RICEFeature { id: string; org_id: string; name: string; reach: number; impact: number; confidence: number; effort: number; created_at: number }
@@ -45,7 +45,7 @@ const mapSession = (s: PrismaPokerSession): PokerSession =>
   ({ id: s.id, org_id: s.orgId, name: s.name, scale: s.scale, status: s.status as PokerSession['status'], current_story_id: s.currentStoryId, created_by: s.createdBy, created_at: Number(s.createdAt) })
 
 const mapStory = (s: PrismaPokerStory): PokerStory =>
-  ({ id: s.id, session_id: s.sessionId, title: s.title, description: s.description, estimate: s.estimate, order_index: s.orderIndex, created_at: Number(s.createdAt) })
+  ({ id: s.id, session_id: s.sessionId, title: s.title, description: s.description, estimate: s.estimate, consensus: s.consensus, average: s.average, high_vote: s.highVote, low_vote: s.lowVote, vote_count: s.voteCount, order_index: s.orderIndex, created_at: Number(s.createdAt) })
 
 const mapVote = (v: PrismaPokerVote): PokerVote =>
   ({ id: v.id, session_id: v.sessionId, story_id: v.storyId, member_id: v.memberId, vote: v.vote, created_at: Number(v.createdAt) })
@@ -168,6 +168,9 @@ export const db = {
   },
   async setStoryEstimate(storyId: string, estimate: string): Promise<void> {
     await prisma.pokerStory.update({ where: { id: storyId }, data: { estimate } })
+  },
+  async setStoryStats(storyId: string, stats: { consensus: string | null; average: string | null; highVote: string | null; lowVote: string | null; voteCount: number }): Promise<void> {
+    await prisma.pokerStory.update({ where: { id: storyId }, data: { consensus: stats.consensus, average: stats.average, highVote: stats.highVote, lowVote: stats.lowVote, voteCount: stats.voteCount } })
   },
 
   // ── Poker Votes ────────────────────────────────────────────────────────────

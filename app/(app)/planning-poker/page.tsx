@@ -105,7 +105,11 @@ export default function PlanningPokerPage() {
     })
   }
 
-  useEffect(() => { fetchSessions() }, [])
+  useEffect(() => {
+    fetchSessions()
+    window.addEventListener('focus', fetchSessions)
+    return () => window.removeEventListener('focus', fetchSessions)
+  }, [])
 
   const activeSessions = sessions.filter(s => s.status !== 'completed')
   const completedSessions = sessions.filter(s => s.status === 'completed')
