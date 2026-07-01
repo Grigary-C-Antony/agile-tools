@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { io, type Socket } from 'socket.io-client'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -12,6 +11,7 @@ import { Input } from '@/components/ui/Input'
 import { useSession } from '@/hooks/useSession'
 import { calcModeVote, calcAverageVote } from '@/lib/utils'
 import { FIBONACCI_DECK, TSHIRT_DECK } from '@/lib/types'
+import { getPusherClient } from '@/lib/pusher-client'
 import type { PokerSession, PokerStory, PokerVote } from '@/lib/db'
 
 interface Participant { memberId: string; name: string; hasVoted: boolean }
@@ -68,6 +68,7 @@ export default function PokerSessionPage() {
   const router = useRouter()
   const sessionId = params.sessionId as string
   const { session: userSession } = useSession()
+  const votedMemberIdsRef = useRef<string[]>([])
 
   const [session, setSession] = useState<PokerSession | null>(null)
   const [stories, setStories] = useState<PokerStory[]>([])
@@ -83,7 +84,6 @@ export default function PokerSessionPage() {
   const [aiError, setAiError] = useState('')
   const [endConfirmOpen, setEndConfirmOpen] = useState(false)
   const [loading, setLoading] = useState(true)
-  const socketRef = useRef<Socket | null>(null)
 
   const currentStory = session?.current_story_id
     ? stories.find(s => s.id === session.current_story_id) ?? null
@@ -93,13 +93,11 @@ export default function PokerSessionPage() {
   const votedCount = participants.filter(p => p.hasVoted).length
   const totalCount = participants.length
 
-  // Build votes record for calcModeVote/calcAverageVote
   const votesRecord: Record<string, string | number> = {}
   votes.forEach(v => { votesRecord[v.member_id] = v.vote })
   const modeVote = revealed ? calcModeVote(votesRecord) : null
   const avgVote = revealed ? calcAverageVote(votesRecord) : null
 
-  // Sort votes highest → lowest for reveal display; highlight min/max
   const sortedVotes = revealed
     ? [...votes].sort((a, b) => {
         const na = parseFloat(a.vote), nb = parseFloat(b.vote)
@@ -121,54 +119,54 @@ export default function PokerSessionPage() {
         setStories(d.stories ?? [])
         setVotes(d.votes ?? [])
         setRevealed(d.session.status === 'revealed')
+        votedMemberIdsRef.current = d.votedMemberIds ?? []
       }
       setLoading(false)
     })
   }, [sessionId])
 
-  // Socket.IO
+  // Pusher real-time
   useEffect(() => {
-    if (!userSession) return
+    if (!userSession || loading) return
 
-    const socket = io({ path: '/api/socket' })
-    socketRef.current = socket
+    const pusherClient = getPusherClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const channel = pusherClient.subscribe(`presence-poker-${sessionId}`) as any
 
-    socket.emit('poker:join', {
-      sessionId,
-      memberId: userSession.memberId,
-      memberName: userSession.memberName,
+    channel.bind('pusher:subscription_succeeded', (members: any) => {
+      const initial: Participant[] = []
+      members.each((member: any) => {
+        initial.push({
+          memberId: member.id,
+          name: member.info.name,
+          hasVoted: votedMemberIdsRef.current.includes(member.id),
+        })
+      })
+      setParticipants(initial)
     })
 
-    socket.on('poker:state', ({ session: s, stories: st, participants: p, votes: v }) => {
-      if (s) setSession(s)
-      if (st) setStories(st)
-      if (p) setParticipants(p)
-      if (v) setVotes(v)
-      if (s?.status === 'revealed') setRevealed(true)
-    })
-
-    socket.on('poker:participant-joined', ({ memberId, memberName }: { memberId: string; memberName: string }) => {
+    channel.bind('pusher:member_added', (member: any) => {
       setParticipants(prev => {
-        if (prev.some(p => p.memberId === memberId)) return prev
-        return [...prev, { memberId, memberName, name: memberName, hasVoted: false }]
+        if (prev.some(p => p.memberId === member.id)) return prev
+        return [...prev, { memberId: member.id, name: member.info.name, hasVoted: false }]
       })
     })
 
-    socket.on('poker:participant-left', ({ memberId }: { memberId: string }) => {
-      setParticipants(prev => prev.filter(p => p.memberId !== memberId))
+    channel.bind('pusher:member_removed', (member: any) => {
+      setParticipants(prev => prev.filter(p => p.memberId !== member.id))
     })
 
-    socket.on('poker:voted', ({ memberId }: { memberId: string }) => {
+    channel.bind('poker:voted', ({ memberId }: { memberId: string }) => {
       setParticipants(prev => prev.map(p => p.memberId === memberId ? { ...p, hasVoted: true } : p))
     })
 
-    socket.on('poker:revealed', ({ votes: v }: { votes: PokerVote[] }) => {
+    channel.bind('poker:revealed', ({ votes: v }: { votes: PokerVote[] }) => {
       setVotes(v)
       setRevealed(true)
       setSession(prev => prev ? { ...prev, status: 'revealed' } : prev)
     })
 
-    socket.on('poker:reset-round', () => {
+    channel.bind('poker:reset-round', () => {
       setVotes([])
       setRevealed(false)
       setMyVote(null)
@@ -176,7 +174,7 @@ export default function PokerSessionPage() {
       setParticipants(prev => prev.map(p => ({ ...p, hasVoted: false })))
     })
 
-    socket.on('poker:story-accepted', ({ storyId, estimate, nextStory }: { storyId: string; estimate: string; nextStory: PokerStory | null }) => {
+    channel.bind('poker:story-accepted', ({ storyId, estimate, nextStory }: { storyId: string; estimate: string; nextStory: PokerStory | null }) => {
       setStories(prev => prev.map(s => s.id === storyId ? { ...s, estimate } : s))
       setVotes([])
       setRevealed(false)
@@ -185,49 +183,59 @@ export default function PokerSessionPage() {
       setSession(prev => prev ? { ...prev, current_story_id: nextStory?.id ?? null, status: nextStory ? 'voting' : 'completed' } : prev)
     })
 
-    socket.on('poker:story-added', ({ story }: { story: PokerStory }) => {
-      setStories(prev => [...prev, story])
+    channel.bind('poker:story-added', ({ story }: { story: PokerStory }) => {
+      setStories(prev => {
+        if (prev.some(s => s.id === story.id)) return prev
+        return [...prev, story]
+      })
       setSession(prev => prev && !prev.current_story_id ? { ...prev, current_story_id: story.id } : prev)
     })
 
-    socket.on('poker:session-ended', () => { router.push('/planning-poker') })
+    channel.bind('poker:session-ended', () => { router.push('/planning-poker') })
 
-    return () => { socket.disconnect() }
-  }, [sessionId, userSession, router])
+    return () => {
+      channel.unbind_all()
+      pusherClient.unsubscribe(`presence-poker-${sessionId}`)
+    }
+  }, [sessionId, userSession, loading, router])
 
-  const emit = useCallback((event: string, data: object) => {
-    socketRef.current?.emit(event, data)
-  }, [])
+  const action = useCallback(async (type: string, data: object = {}) => {
+    await fetch(`/api/poker/${sessionId}/action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: type, ...data }),
+    })
+  }, [sessionId])
 
   const handleVote = (val: string) => {
     if (!currentStory || !userSession) return
     const newVote = val === myVote ? null : val
     setMyVote(newVote)
     if (newVote) {
-      emit('poker:vote', { sessionId, storyId: currentStory.id, memberId: userSession.memberId, vote: newVote })
+      action('vote', { storyId: currentStory.id, vote: newVote })
       setParticipants(prev => prev.map(p => p.memberId === userSession.memberId ? { ...p, hasVoted: true } : p))
     }
   }
 
   const handleReveal = () => {
     if (!currentStory) return
-    emit('poker:reveal', { sessionId, storyId: currentStory.id })
+    action('reveal', { storyId: currentStory.id })
   }
 
   const handleReset = () => {
     if (!currentStory) return
-    emit('poker:reset', { sessionId, storyId: currentStory.id })
+    action('reset', { storyId: currentStory.id })
   }
 
   const handleAcceptStory = () => {
     if (!currentStory) return
     const estimate = modeVote ?? myVote ?? '?'
-    emit('poker:accept-story', { sessionId, storyId: currentStory.id, estimate })
+    action('accept-story', { storyId: currentStory.id, estimate })
   }
 
   const handleAddStory = () => {
     if (!newStoryTitle.trim()) return
-    emit('poker:add-story', { sessionId, title: newStoryTitle.trim() })
+    action('add-story', { title: newStoryTitle.trim() })
     setNewStoryTitle('')
     setAiPrompt('')
     setAiError('')
@@ -255,13 +263,13 @@ export default function PokerSessionPage() {
   }
 
   const handleEnd = () => {
-    emit('poker:end', { sessionId })
+    action('end', {})
     router.push('/planning-poker')
   }
 
   const navigateStory = (idx: number) => {
     const story = stories[idx]
-    if (!story || !userSession) return
+    if (!story) return
     setSession(prev => prev ? { ...prev, current_story_id: story.id } : prev)
     setVotes([])
     setRevealed(false)
@@ -394,7 +402,6 @@ export default function PokerSessionPage() {
             {/* Card reveal area */}
             <div className="flex-1 flex items-center justify-center px-4 py-3 overflow-y-auto relative z-10">
               {revealed ? (
-                /* Side-by-side: consensus left, individual votes right */
                 <div className="flex items-center gap-6 w-full justify-center flex-wrap">
                   {/* Consensus */}
                   <div className="relative shrink-0">

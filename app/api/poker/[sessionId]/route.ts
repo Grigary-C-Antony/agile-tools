@@ -26,6 +26,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ sessionId:
     session: pokerSession,
     stories,
     votes: pokerSession.status === 'revealed' ? currentVotes : [],
+    votedMemberIds: pokerSession.status !== 'revealed' ? currentVotes.map(v => v.member_id) : [],
     members: orgMembers,
   })
 }
