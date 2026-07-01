@@ -71,7 +71,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
       } else {
         await db.updatePokerSessionStatus(sessionId, 'completed')
       }
-      await pusher.trigger(channel, 'poker:story-accepted', { storyId, estimate, nextStory })
+      const storyStats = {
+        consensus: modeVote !== null ? String(modeVote) : estimate,
+        average: avgVote !== null ? String(avgVote) : null,
+        highVote: maxVal !== null ? String(maxVal) : null,
+        lowVote: minVal !== null ? String(minVal) : null,
+        voteCount: currentVotes.length,
+      }
+      await pusher.trigger(channel, 'poker:story-accepted', { storyId, estimate, nextStory, storyStats, storyVotes: currentVotes })
       return NextResponse.json({ ok: true })
     }
 

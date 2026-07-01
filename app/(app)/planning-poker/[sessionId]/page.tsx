@@ -81,6 +81,7 @@ export default function PokerSessionPage() {
   const [aiError, setAiError] = useState('')
   const [endConfirmOpen, setEndConfirmOpen] = useState(false)
   const [storyDetailOpen, setStoryDetailOpen] = useState(false)
+  const [storyVotesMap, setStoryVotesMap] = useState<Record<string, PokerVote[]>>({})
   const [loading, setLoading] = useState(true)
 
   const currentStory = session?.current_story_id
@@ -112,6 +113,7 @@ export default function PokerSessionPage() {
         setRevealed(d.session.status === 'revealed')
         setOrgMembers(d.members ?? [])
         setVotedMemberIds(new Set(d.votedMemberIds ?? []))
+        setStoryVotesMap(d.storyVotesMap ?? {})
       }
       setLoading(false)
     })
@@ -143,8 +145,20 @@ export default function PokerSessionPage() {
       setVotedMemberIds(new Set())
     })
 
-    channel.bind('poker:story-accepted', ({ storyId, estimate, nextStory }: { storyId: string; estimate: string; nextStory: PokerStory | null }) => {
-      setStories(prev => prev.map(s => s.id === storyId ? { ...s, estimate } : s))
+    channel.bind('poker:story-accepted', ({ storyId, estimate, nextStory, storyStats, storyVotes }: {
+      storyId: string; estimate: string; nextStory: PokerStory | null
+      storyStats?: { consensus: string | null; average: string | null; highVote: string | null; lowVote: string | null; voteCount: number }
+      storyVotes?: PokerVote[]
+    }) => {
+      setStories(prev => prev.map(s => s.id === storyId ? {
+        ...s, estimate,
+        consensus: storyStats?.consensus ?? null,
+        average: storyStats?.average ?? null,
+        high_vote: storyStats?.highVote ?? null,
+        low_vote: storyStats?.lowVote ?? null,
+        vote_count: storyStats?.voteCount ?? null,
+      } : s))
+      if (storyVotes) setStoryVotesMap(prev => ({ ...prev, [storyId]: storyVotes }))
       setVotes([])
       setRevealed(false)
       setMyVote(null)
@@ -416,6 +430,23 @@ export default function PokerSessionPage() {
                       </div>
                     )}
                   </div>
+                  {/* Individual member votes */}
+                  {storyVotesMap[currentStory.id]?.length > 0 && (
+                    <div className="flex flex-wrap justify-center gap-2.5 mt-1">
+                      {storyVotesMap[currentStory.id].map(v => {
+                        const member = orgMembers.find(m => m.id === v.member_id)
+                        if (!member) return null
+                        return (
+                          <div key={v.id} className="flex flex-col items-center gap-1">
+                            <div className="w-8 h-8 rounded-full gradient-brand flex items-center justify-center text-[10px] font-bold text-white border border-white/10">
+                              {MemberInitials(member.name)}
+                            </div>
+                            <span className="text-[11px] font-bold text-on-surface-variant">{v.vote}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                   {currentStory.vote_count != null && currentStory.vote_count > 0 && (
                     <p className="text-[11px] text-on-surface-variant/30">
                       <span className="font-bold">{currentStory.vote_count}</span> vote{currentStory.vote_count !== 1 ? 's' : ''} · accepted as{' '}

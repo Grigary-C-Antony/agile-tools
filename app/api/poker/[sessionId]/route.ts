@@ -39,11 +39,20 @@ export async function GET(_: Request, { params }: { params: Promise<{ sessionId:
   const currentVotes = pokerSession.current_story_id
     ? await db.getVotes(sessionId, pokerSession.current_story_id) : []
 
+  // Load votes for all accepted stories so the client can show breakdowns
+  const storyVotesMap: Record<string, typeof currentVotes> = {}
+  for (const s of stories) {
+    if (s.estimate) {
+      storyVotesMap[s.id] = await db.getVotes(sessionId, s.id)
+    }
+  }
+
   return NextResponse.json({
     session: pokerSession,
     stories,
     votes: pokerSession.status === 'revealed' ? currentVotes : [],
     votedMemberIds: pokerSession.status !== 'revealed' ? currentVotes.map(v => v.member_id) : [],
     members: orgMembers,
+    storyVotesMap,
   })
 }
