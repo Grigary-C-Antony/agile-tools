@@ -544,7 +544,7 @@ export default function PokerSessionPage() {
                 </>
               ) : (
                 <p className="text-xs text-on-surface-variant/40 py-1">
-                  Waiting for the host to reveal…
+                  {revealed ? 'Waiting for the host to accept…' : 'Waiting for the host to reveal…'}
                 </p>
               )}
             </div>

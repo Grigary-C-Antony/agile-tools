@@ -68,6 +68,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
       const nextStory = currentIdx >= 0 && currentIdx < stories.length - 1 ? stories[currentIdx + 1] : null
       if (nextStory) {
         await db.setCurrentStory(sessionId, nextStory.id)
+        await db.updatePokerSessionStatus(sessionId, 'voting')
       } else {
         await db.updatePokerSessionStatus(sessionId, 'completed')
       }
