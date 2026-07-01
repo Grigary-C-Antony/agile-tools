@@ -9,8 +9,6 @@ import type {
 } from '@prisma/client'
 import { randomUUID } from 'crypto'
 
-// Ensure DATABASE_URL is set for server.ts (tsx doesn't auto-load .env)
-process.env.DATABASE_URL ??= 'file:./data/agile.db'
 
 const g = global as typeof global & { prisma?: PrismaClient }
 export const prisma = g.prisma ?? new PrismaClient()
