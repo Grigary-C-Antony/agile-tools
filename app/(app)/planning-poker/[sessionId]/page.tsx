@@ -255,13 +255,10 @@ export default function PokerSessionPage() {
     const story = stories[idx]
     if (!story) return
     setSession(prev => prev ? { ...prev, current_story_id: story.id } : prev)
-    // Don't reset voting state when browsing accepted/completed stories
-    if (!story.estimate && session?.status !== 'completed') {
-      setVotes([])
-      setRevealed(false)
-      setMyVote(null)
-      setVotedMemberIds(new Set())
-    }
+    setVotes([])
+    setRevealed(false)
+    setMyVote(null)
+    setVotedMemberIds(new Set())
   }
 
   if (loading) return (

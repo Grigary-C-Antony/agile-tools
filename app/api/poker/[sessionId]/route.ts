@@ -39,11 +39,18 @@ export async function GET(_: Request, { params }: { params: Promise<{ sessionId:
   const currentVotes = pokerSession.current_story_id
     ? await db.getVotes(sessionId, pokerSession.current_story_id) : []
 
-  // Load votes for all accepted stories so the client can show breakdowns
+  // Load votes for accepted stories (never the current active story to prevent leaking unrevealed votes)
   const storyVotesMap: Record<string, typeof currentVotes> = {}
   for (const s of stories) {
-    if (s.estimate) {
+    if (s.estimate && s.id !== pokerSession.current_story_id) {
       storyVotesMap[s.id] = await db.getVotes(sessionId, s.id)
+    }
+  }
+  // For completed sessions the current story is the last accepted one — include it
+  if (pokerSession.status === 'completed' && pokerSession.current_story_id) {
+    const last = stories.find(s => s.id === pokerSession.current_story_id)
+    if (last?.estimate) {
+      storyVotesMap[last.id] = await db.getVotes(sessionId, last.id)
     }
   }
 
