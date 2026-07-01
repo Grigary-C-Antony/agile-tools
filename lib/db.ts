@@ -149,6 +149,11 @@ export const db = {
   async setCurrentStory(sessionId: string, storyId: string | null): Promise<void> {
     await prisma.pokerSession.update({ where: { id: sessionId }, data: { currentStoryId: storyId } })
   },
+  async deletePokerSession(id: string): Promise<void> {
+    await prisma.pokerVote.deleteMany({ where: { sessionId: id } })
+    await prisma.pokerStory.deleteMany({ where: { sessionId: id } })
+    await prisma.pokerSession.delete({ where: { id } })
+  },
 
   // ── Poker Stories ──────────────────────────────────────────────────────────
   async addStory(sessionId: string, title: string, description?: string): Promise<PokerStory> {

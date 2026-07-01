@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Input, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
+import { useSession } from '@/hooks/useSession'
 import type { EstimationScale } from '@/lib/types'
 
 const SCALE_OPTIONS: { id: EstimationScale; label: string; values: string[] }[] = [
@@ -21,6 +22,7 @@ interface PokerSession {
   name: string
   scale: string
   status: string
+  created_by: string
   created_at: number
   storyCount: number
   estimatedCount: number
@@ -94,9 +96,12 @@ function CreateSessionModal({ open, onClose, onCreated }: {
 
 export default function PlanningPokerPage() {
   const router = useRouter()
+  const { session: userSession } = useSession()
   const [sessions, setSessions] = useState<PokerSession[]>([])
   const [loading, setLoading] = useState(true)
   const [createOpen, setCreateOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<PokerSession | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const fetchSessions = () => {
     fetch('/api/poker').then(r => r.json()).then(d => {
@@ -110,6 +115,18 @@ export default function PlanningPokerPage() {
     window.addEventListener('focus', fetchSessions)
     return () => window.removeEventListener('focus', fetchSessions)
   }, [])
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    await fetch(`/api/poker/${deleteTarget.id}`, { method: 'DELETE' })
+    setDeleting(false)
+    setDeleteTarget(null)
+    fetchSessions()
+  }
+
+  const canDelete = (s: PokerSession) =>
+    userSession?.role === 'admin' || userSession?.memberId === s.created_by
 
   const activeSessions = sessions.filter(s => s.status !== 'completed')
   const completedSessions = sessions.filter(s => s.status === 'completed')
@@ -150,27 +167,38 @@ export default function PlanningPokerPage() {
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {activeSessions.map(s => (
-                  <Link key={s.id} href={`/planning-poker/${s.id}`}>
-                    <GlassCard hover padding="md" topGradient neonAccent="purple" className="h-full group animate-fade-in">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-                          <span className="material-symbols-outlined text-primary text-[22px]">casino</span>
+                  <div key={s.id} className="relative group/card">
+                    <Link href={`/planning-poker/${s.id}`}>
+                      <GlassCard hover padding="md" topGradient neonAccent="purple" className="h-full group animate-fade-in">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                            <span className="material-symbols-outlined text-primary text-[22px]">casino</span>
+                          </div>
+                          <Badge variant="tertiary" dot>Voting</Badge>
                         </div>
-                        <Badge variant="tertiary" dot>Voting</Badge>
-                      </div>
-                      <h4 className="font-bold text-on-surface group-hover:text-primary transition-colors mb-1">{s.name}</h4>
-                      <p className="text-xs text-on-surface-variant/50 mb-3">
-                        by {s.creatorName} · {s.scale}
-                      </p>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-on-surface-variant/40">{s.estimatedCount}/{s.storyCount} stories</span>
-                        <div className="h-1.5 w-24 bg-white/5 rounded-full overflow-hidden">
-                          <div className="h-full gradient-brand rounded-full"
-                            style={{ width: s.storyCount ? `${(s.estimatedCount / s.storyCount) * 100}%` : '0%' }} />
+                        <h4 className="font-bold text-on-surface group-hover:text-primary transition-colors mb-1">{s.name}</h4>
+                        <p className="text-xs text-on-surface-variant/50 mb-3">
+                          by {s.creatorName} · {s.scale}
+                        </p>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-on-surface-variant/40">{s.estimatedCount}/{s.storyCount} stories</span>
+                          <div className="h-1.5 w-24 bg-white/5 rounded-full overflow-hidden">
+                            <div className="h-full gradient-brand rounded-full"
+                              style={{ width: s.storyCount ? `${(s.estimatedCount / s.storyCount) * 100}%` : '0%' }} />
+                          </div>
                         </div>
-                      </div>
-                    </GlassCard>
-                  </Link>
+                      </GlassCard>
+                    </Link>
+                    {canDelete(s) && (
+                      <button
+                        onClick={e => { e.preventDefault(); setDeleteTarget(s) }}
+                        className="absolute top-2 right-2 opacity-0 group-hover/card:opacity-100 transition-opacity p-1.5 rounded-lg text-on-surface-variant/40 hover:text-error hover:bg-error/10"
+                        title="Delete session"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">delete</span>
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
@@ -181,26 +209,49 @@ export default function PlanningPokerPage() {
               <h3 className="text-base font-bold text-on-surface mb-4 text-on-surface-variant/60">Completed Sessions</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {completedSessions.map(s => (
-                  <Link key={s.id} href={`/planning-poker/${s.id}`}>
-                    <GlassCard hover padding="md" className="h-full group opacity-70 hover:opacity-100 animate-fade-in">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="w-11 h-11 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
-                          <span className="material-symbols-outlined text-on-surface-variant text-[22px]">casino</span>
+                  <div key={s.id} className="relative group/card">
+                    <Link href={`/planning-poker/${s.id}`}>
+                      <GlassCard hover padding="md" className="h-full group opacity-70 hover:opacity-100 animate-fade-in">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="w-11 h-11 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+                            <span className="material-symbols-outlined text-on-surface-variant text-[22px]">casino</span>
+                          </div>
+                          <Badge variant="glass">Completed</Badge>
                         </div>
-                        <Badge variant="glass">Completed</Badge>
-                      </div>
-                      <h4 className="font-bold text-on-surface group-hover:text-primary transition-colors mb-1">{s.name}</h4>
-                      <p className="text-xs text-on-surface-variant/50">
-                        by {s.creatorName} · {s.storyCount} stories estimated
-                      </p>
-                    </GlassCard>
-                  </Link>
+                        <h4 className="font-bold text-on-surface group-hover:text-primary transition-colors mb-1">{s.name}</h4>
+                        <p className="text-xs text-on-surface-variant/50">
+                          by {s.creatorName} · {s.storyCount} stories estimated
+                        </p>
+                      </GlassCard>
+                    </Link>
+                    {canDelete(s) && (
+                      <button
+                        onClick={e => { e.preventDefault(); setDeleteTarget(s) }}
+                        className="absolute top-2 right-2 opacity-0 group-hover/card:opacity-100 transition-opacity p-1.5 rounded-lg text-on-surface-variant/40 hover:text-error hover:bg-error/10"
+                        title="Delete session"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">delete</span>
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
           )}
         </>
       )}
+
+      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Session?" size="sm">
+        <div className="space-y-4">
+          <p className="text-sm text-on-surface-variant">
+            Delete <span className="text-on-surface font-semibold">{deleteTarget?.name}</span>? This will remove all stories and votes permanently.
+          </p>
+          <div className="flex gap-3">
+            <Button variant="secondary" className="flex-1" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="danger" className="flex-1" icon="delete" loading={deleting} onClick={handleDelete}>Delete</Button>
+          </div>
+        </div>
+      </Modal>
 
       <CreateSessionModal
         open={createOpen}
